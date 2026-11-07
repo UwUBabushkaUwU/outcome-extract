@@ -1,0 +1,6 @@
+ref/
+cache/
+data/
+.git/
+.venv/
+.env
