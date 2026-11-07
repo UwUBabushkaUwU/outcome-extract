@@ -34,3 +34,4 @@ def parse(path: str | Path) -> Document:
                 images.append((page_num, pix.tobytes("png")))
 
     return Document(chunks=chunks, images=images)
+

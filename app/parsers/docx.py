@@ -86,3 +86,4 @@ def parse(path: str | Path) -> Document:
         chunks.append(Chunk(text="", location="[Page 1]"))
 
     return Document(chunks=chunks, images=[])
+
