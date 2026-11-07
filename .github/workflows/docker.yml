@@ -1,0 +1,59 @@
+name: Docker
+
+on:
+  push:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      LLM_BASE_URL: https://dummy.openrouter.ai/api/v1
+      LLM_API_KEY: dummy_test_key
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build and start service
+        run: docker compose up -d --build
+
+      - name: Wait for healthcheck (up to 60s)
+        run: |
+          echo "Waiting for healthcheck on localhost:8080/health..."
+          for i in {1..60}; do
+            if curl -f localhost:8080/health; then
+              echo ""
+              echo "Service is healthy!"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "Healthcheck timed out after 60 seconds."
+              docker compose logs
+              exit 1
+            fi
+            echo "Waiting for healthcheck ($i/60)..."
+            sleep 1
+          done
+
+      - name: Submit test job to /jobs and verify 202
+        run: |
+          echo "Submitting tests/fixtures/tiny.csv and tests/fixtures/tiny_schema.json to /jobs..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST localhost:8080/jobs \
+            -F "file=@tests/fixtures/tiny.csv" \
+            -F "schema=<tests/fixtures/tiny_schema.json")
+          
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP status: $HTTP_STATUS"
+          echo "Response body: $BODY"
+          
+          if [ "$HTTP_STATUS" -ne 202 ]; then
+            echo "Expected HTTP 202, got $HTTP_STATUS"
+            docker compose logs
+            exit 1
+          fi
+          echo "Job successfully accepted with HTTP 202!"
+
+      - name: Teardown
+        if: always()
+        run: docker compose down -v

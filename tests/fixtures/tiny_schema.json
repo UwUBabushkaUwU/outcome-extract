@@ -1,0 +1,14 @@
+{
+  "name": "tiny",
+  "description": "A tiny test schema for smoke testing.",
+  "fields": {
+    "name": {
+      "name": "Name",
+      "description": "Item name"
+    },
+    "amount": {
+      "name": "Amount",
+      "description": "Item amount as a number"
+    }
+  }
+}
