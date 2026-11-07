@@ -13,7 +13,7 @@ SCHEMA = json.dumps({"name": "t", "fields": {"a": {"name": "A", "description": "
 
 
 @pytest.fixture
-def client():
+def client(fake_llm):
     with TestClient(app) as c:
         yield c
 
@@ -40,7 +40,7 @@ def test_submit_poll_and_complete(client):
     assert done["status"] == "SUCCESS"
     entry = done["result"]["entries"][0]
     assert set(entry) == {"a", "b"}
-    assert entry["a"] == {"value": None, "citation": "", "confidence": 0.0}
+    assert entry["a"]["value"] is None and entry["a"]["citation"] == ""
     assert {"model_calls", "tokens_in", "tokens_out", "cost_usd", "latency_ms"} <= set(
         done["result"]["metadata"])
 

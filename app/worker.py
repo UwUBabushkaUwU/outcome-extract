@@ -11,11 +11,10 @@ import random
 import threading
 import time
 import traceback
-from datetime import datetime
 
 import httpx
 
-from app import config, db, pipeline
+from app import config, db, normalize, pipeline
 
 log = logging.getLogger("app.worker")
 
@@ -36,11 +35,6 @@ class _Heartbeat(threading.Thread):
                     return
             except Exception:  # noqa: BLE001 - a failed renewal is retried next tick
                 log.exception("job=%s lease renewal failed", self.job_id)
-
-
-def _latency_ms(created_at: str) -> int:
-    created = datetime.fromisoformat(created_at)
-    return max(0, int((time.time() - created.timestamp()) * 1000))
 
 
 def _send_webhook(url: str, body: dict, job_id: str) -> None:
@@ -79,7 +73,7 @@ def process_job(job: dict, worker_id: str) -> None:
         status, error = out.status, out.error
         result = {
             "entries": out.entries,
-            "metadata": {**ctx.usage.to_metadata(), "latency_ms": _latency_ms(job["created_at"])},
+            "metadata": normalize.build_metadata(ctx.usage, job["created_at"]),
         }
     except Exception as exc:  # noqa: BLE001 - any pipeline failure becomes FAILED with a reason
         status = "FAILED"

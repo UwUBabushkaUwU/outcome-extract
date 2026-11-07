@@ -47,7 +47,8 @@ SAMPLES = {"pdf": _pdf, "docx": _docx, "xlsx": _xlsx, "csv": _csv}
 
 @pytest.mark.parametrize("file_type", SAMPLES)
 @pytest.mark.parametrize("upload_name", ["upload", "document.bin"])
-def test_upload_without_extension_is_parsed_end_to_end(file_type, upload_name, monkeypatch):
+def test_upload_without_extension_is_parsed_end_to_end(file_type, upload_name, monkeypatch,
+                                                        fake_llm):
     parsed = {}
     real_parse = parsers.parse
 

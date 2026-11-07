@@ -1,6 +1,6 @@
 import pytest
 
-from app import config, db
+from app import config, db, llm, pipeline
 
 
 @pytest.fixture(autouse=True)
@@ -15,3 +15,37 @@ def isolated_dirs(tmp_path, monkeypatch):
         d.mkdir(parents=True)
     db.init_db()
     yield tmp_path
+
+
+class FakeLLM:
+    """Stands in for llm.chat_json. Routes on the system prompt; handlers can be replaced
+    per test. Records every call."""
+
+    def __init__(self):
+        self.calls = []
+        self.prep = lambda msgs: {"fields": {}}
+        self.doc = lambda msgs: {"fields": {}}
+        self.rows = lambda msgs: {"rows": []}
+        self.transcribe = lambda msgs: {"text": ""}
+
+    def __call__(self, messages, *, usage, model=llm.DEFAULT_MODEL, **kw):
+        system = messages[0]["content"]
+        kind = {pipeline.PREP_SYSTEM: "prep", pipeline.DOC_SYSTEM: "doc",
+                pipeline.ROW_SYSTEM: "rows", pipeline.TRANSCRIBE_SYSTEM: "transcribe"}[system]
+        self.calls.append((kind, messages))
+        usage.record(model, 10, 5, 0.0001)
+        out = getattr(self, kind)(messages)
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    def count(self, kind):
+        return sum(1 for k, _ in self.calls if k == kind)
+
+
+@pytest.fixture
+def fake_llm(monkeypatch):
+    fake = FakeLLM()
+    monkeypatch.setattr(llm, "chat_json", fake)
+    pipeline._prep_memo.clear()
+    return fake
