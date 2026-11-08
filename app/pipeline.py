@@ -268,6 +268,8 @@ def extract_document(schema, specs, keys, full_text, usage, errors) -> dict:
 
 
 def extract_rows(schema, specs, keys, primary, chunk: chunking.RowChunk, usage, errors) -> list:
+    """Extract the records of one chunk. If the reply is cut off at max_tokens, split the
+    chunk in half at a record boundary and extract each half, down to a single record."""
     context = "\n".join(chunk.header) if chunk.header else "(none)"
     where = f"sheet '{chunk.sheet}'" if chunk.sheet else "pages"
     user = (f"{_doc_header(schema)}\n\nPRIMARY FIELD: {primary}\n"
@@ -278,9 +280,18 @@ def extract_rows(schema, specs, keys, primary, chunk: chunking.RowChunk, usage, 
         out = llm.chat_json([{"role": "system", "content": ROW_SYSTEM},
                              {"role": "user", "content": user}],
                             usage=usage, model=MODEL, max_tokens=ROWS_MAX_TOKENS,
-                            allow_expensive=ALLOW_EXPENSIVE, tag=f"rows {chunk.index}")
+                            allow_expensive=ALLOW_EXPENSIVE, tag=f"rows {chunk.label}")
+    except llm.Truncated as exc:
+        halves = chunk.halves()
+        if halves is None:
+            errors.add(f"rows chunk {chunk.label} ({where}), a single record", exc)
+            return []
+        log.warning("rows chunk %s (%d records) truncated; splitting into %d + %d records",
+                    chunk.label, chunk.records, halves[0].records, halves[1].records)
+        return [row for half in halves
+                for row in extract_rows(schema, specs, keys, primary, half, usage, errors)]
     except llm.LLMError as exc:
-        errors.add(f"rows chunk {chunk.index} ({where})", exc)
+        errors.add(f"rows chunk {chunk.label} ({where})", exc)
         return []
     rows = out.get("rows", []) if isinstance(out, dict) else out
     return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []

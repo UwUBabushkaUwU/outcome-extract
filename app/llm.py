@@ -73,6 +73,11 @@ class BudgetExceeded(LLMError):
     """The job's call or cost cap is spent; no further requests are made."""
 
 
+class Truncated(LLMError):
+    """The reply stopped at max_tokens. Retrying the same request would be truncated again;
+    the caller has to ask for less (e.g. split the input)."""
+
+
 class _ModelFailed(Exception):
     """One model is exhausted; move on to the next."""
 
@@ -377,7 +382,7 @@ def _call_model(params: dict, usage: Usage, max_attempts: int, tag: str) -> tupl
         content = choice.message.content if choice else None
         if finish == "length":
             # Retrying would pay for the same truncated reply again.
-            raise LLMError(f"{model}: reply truncated at max_tokens="
+            raise Truncated(f"{model}: reply truncated at max_tokens="
                            f"{params.get('max_tokens')} ({t_out} tokens out)")
         if not content:  # e.g. a 200 with an error body and no choices
             err = (getattr(resp, "model_extra", None) or {}).get("error")

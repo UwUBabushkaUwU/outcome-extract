@@ -18,7 +18,7 @@
 import os
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.parsers.base import Document
 
@@ -53,6 +53,12 @@ class RowChunk:
     header: list[str]  # context lines, empty for the first chunk of a section
     lines: list[str]
     index: int = 0
+    starts: list[int] = field(default_factory=lambda: [0])  # where each record begins
+    label: str = ""
+    columns: list[str] = field(default_factory=list)  # the section's column-header lines
+
+    def __post_init__(self):
+        self.label = self.label or str(self.index)
 
     @property
     def sheet(self) -> str | None:
@@ -61,6 +67,32 @@ class RowChunk:
     @property
     def text(self) -> str:
         return "\n".join(self.lines)
+
+    @property
+    def records(self) -> int:
+        return len(self.starts)
+
+    def halves(self) -> tuple["RowChunk", "RowChunk"] | None:
+        """Split at the record boundary nearest the middle. None if this is one record."""
+        if len(self.starts) < 2:
+            return None
+        k = len(self.starts) // 2
+        mid = self.starts[k]
+        first_lines, rest = self.lines[:mid], self.lines[mid:]
+        second_lines = list(rest)
+        offset = -mid
+        page = next((ln for ln in reversed(first_lines) if PAGE_MARKER.match(ln)), None)
+        if page and not PAGE_MARKER.match(rest[0]):
+            second_lines.insert(0, page)  # the second half still knows its page
+            offset += 1
+        tail = [ln for ln in first_lines[-CONTEXT_TAIL_LINES:]
+                if ln not in self.columns and not PAGE_MARKER.match(ln)]
+        first = RowChunk(self.section, self.header, first_lines, self.index,
+                         self.starts[:k], f"{self.label}.1", self.columns)
+        second = RowChunk(self.section, self.columns + (["..."] + tail if tail else []),
+                          second_lines, self.index, [s + offset for s in self.starts[k:]],
+                          f"{self.label}.2", self.columns)
+        return first, second
 
 
 # --------------------------------------------------------------------------- sections
@@ -154,27 +186,30 @@ def norm_label(text: str) -> str:
 
 
 def _group(blocks: list[list[str]], target: int,
-           max_records: int | None = None) -> list[list[str]]:
+           max_records: int | None = None) -> list[tuple[list[str], list[int]]]:
     """Pack whole blocks into groups of about `target` lines and at most `max_records`
-    blocks (records), so the model's reply for a group stays within its token limit."""
-    groups, cur, records = [], [], 0
+    blocks (records), so the model's reply for a group stays within its token limit.
+    Returns (lines, record start offsets) per group."""
+    groups, cur, starts = [], [], []
     for block in blocks:
         for piece in (block[i:i + MAX_BLOCK_LINES] for i in range(0, len(block), MAX_BLOCK_LINES)):
-            full = len(cur) + len(piece) > target or (max_records and records >= max_records)
+            full = len(cur) + len(piece) > target or (max_records and len(starts) >= max_records)
             if cur and full:
-                groups.append(cur)
-                cur, records = [], 0
+                groups.append((cur, starts))
+                cur, starts = [], []
+            starts.append(len(cur))
             cur.extend(piece)
-            records += 1
     if cur:
-        groups.append(cur)
+        groups.append((cur, starts))
     return groups
 
 
 def _blocks_from_starts(lines: list[str], starts: list[int]) -> list[list[str]]:
     if not starts:
         return [[ln] for ln in lines]
-    bounds = [0] + [s for s in starts if s > 0] + [len(lines)]
+    # Lines before the first record (titles, column headers, a page marker) are not a
+    # record of their own: they go with the first one.
+    bounds = [0] + starts[1:] + [len(lines)]
     return [lines[a:b] for a, b in zip(bounds, bounds[1:]) if b > a]
 
 
@@ -233,10 +268,11 @@ def split_rows(sec: Section, primary_labels: list[str], target: int | None = Non
         blocks, header = _page_blocks(sec)
 
     chunks, page, prev = [], None, []
-    for i, group in enumerate(_group(blocks, target, max_records)):
+    for i, (group, starts) in enumerate(_group(blocks, target, max_records)):
         body = list(group)
         if sec.kind == "pages" and page and not PAGE_MARKER.match(body[0]):
             body.insert(0, page)  # so the chunk knows which page it starts on
+            starts = [s + 1 for s in starts]
         for ln in group:
             if PAGE_MARKER.match(ln):
                 page = ln
@@ -246,6 +282,7 @@ def split_rows(sec: Section, primary_labels: list[str], target: int | None = Non
             # "the nearest section header above the line" can still be read.
             tail = [ln for ln in prev[-CONTEXT_TAIL_LINES:] if ln not in header]
             context = header + (["..."] + tail if tail else [])
-        chunks.append(RowChunk(sec, context, body, index=len(chunks)))
+        chunks.append(RowChunk(sec, context, body, index=len(chunks), starts=starts,
+                               columns=header))
         prev = group
     return chunks
