@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from app import config, db, llm, pipeline
@@ -41,7 +43,8 @@ class FakeLLM:
     def __call__(self, messages, *, usage, model=llm.DEFAULT_MODEL, **kw):
         system = messages[0]["content"]
         kind = {pipeline.PREP_SYSTEM: "prep", pipeline.DOC_SYSTEM: "doc",
-                pipeline.ROW_SYSTEM: "rows", pipeline.TRANSCRIBE_SYSTEM: "transcribe"}[system]
+                pipeline.ROW_SYSTEM: "rows", pipeline.SHEET_ROW_SYSTEM: "rows",
+                pipeline.TRANSCRIBE_SYSTEM: "transcribe"}[system]
         self.calls.append((kind, messages))
         self.kwargs.append((kind, {"model": model, **kw}))
         usage.record(model, 10, 5, 0.0001)
@@ -60,3 +63,9 @@ def fake_llm(monkeypatch):
     monkeypatch.setattr(llm, "chat_json", fake)
     pipeline._prep_memo.clear()
     return fake
+
+
+def rows_section(messages) -> str:
+    """The ROWS part of a row-chunk prompt (sheet or pages)."""
+    user = messages[1]["content"] if isinstance(messages, list) else messages
+    return re.split(r"\nROWS[^\n]*:\n", user, maxsplit=1)[1]

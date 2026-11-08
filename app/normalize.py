@@ -492,6 +492,56 @@ def span_inputs(check: Check, source: Source) -> list[str] | None:
     return [found[1] for ref in refs if (found := source.cell(sheet, ref))]
 
 
+# --------------------------------------------------------------------------- cell references
+
+_REF_TOKEN = re.compile(r"^(?:[^!\s]+!)?[A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?$")
+
+
+def citation_from_refs(cite: Any, source: Source, sheet: str | None) -> str:
+    """Spreadsheet replies cite cells only ("F12", "C13:N13", "C13, E13", "Sheet!B7").
+    Build the citation text from the parsed sheet: "[F12] <cell text>". Anything that isn't
+    a list of cell references (an old-style quoted citation) is returned unchanged."""
+    if isinstance(cite, (list, tuple)):
+        cite = ", ".join(str(c) for c in cite)
+    if not isinstance(cite, str) or not cite.strip():
+        return ""
+    tokens = [t for t in re.split(r"\s*(?:,|;|\.\.\.|…|\s)\s*", cite.strip().strip("[]")) if t]
+    tokens = [t.strip("[]") for t in tokens]
+    if not tokens or not all(_REF_TOKEN.match(t) for t in tokens):
+        return cite
+    parts = []
+    for t in tokens:
+        if ":" in t:
+            parts.append(f"[{t}]")  # a range: the checker expands it
+            continue
+        sh, _, ref = t.rpartition("!")
+        found = source.cell(sh or sheet, ref)
+        parts.append(f"[{t}] {found[1]}" if found else f"[{t}]")
+    return " ... ".join(parts)
+
+
+def _agrees(value: Any, cell_text: str, spec: dict) -> bool:
+    """Does an extracted value say what the cell it cites says?"""
+    kind = spec["type"]
+    if kind in ("number", "percent"):
+        cv = parse_number(cell_text)
+        return cv is not None and abs(cv - value) <= 0.005 * max(1.0, abs(cv))
+    if kind == "date":
+        return parse_date(cell_text, spec["date_format"]) == value
+    if kind == "boolean":
+        return parse_bool(cell_text) == value
+    if kind == "string":
+        a, b = norm_text(str(value)), norm_text(cell_text)
+        return bool(a) and (a in b or b in a)
+    return True  # lists: not a single-cell value
+
+
+def _row_cells(source: Source, sheet: str, ref: str) -> list[tuple[str, str]]:
+    row = re.search(r"\d+", ref).group()
+    return [(r, t) for (sh, r), t in source.cells.items()
+            if sh == sheet and re.fullmatch(r"[A-Z]+" + row, r)]
+
+
 # --------------------------------------------------------------------------- recompute
 
 _DATE_IN_TEXT = re.compile(
@@ -558,7 +608,8 @@ def _clamp(x: Any, default: float = 0.5) -> float:
 def unpack(raw: Any) -> tuple[Any, str, float]:
     """Accept {"value","citation","confidence"}, [value, citation, confidence] or a bare value."""
     if isinstance(raw, dict):
-        return raw.get("value"), raw.get("citation") or "", _clamp(raw.get("confidence"))
+        cite = raw.get("citation") or raw.get("cite") or ""
+        return raw.get("value"), cite, _clamp(raw.get("confidence"))
     if isinstance(raw, (list, tuple)) and len(raw) == 3 and isinstance(raw[1], str):
         return raw[0], raw[1], _clamp(raw[2])
     return raw, "", 0.5
@@ -578,6 +629,23 @@ def finalize_field(raw: Any, spec: dict, source: Source, sheet: str | None = Non
         # The heading cited must actually be where the value comes from.
         if norm_text(value) not in norm_text(" ".join(check.inputs)):
             check = Check(False)
+    if (check.ok and kind == "extracted" and not isinstance(value, list)
+            and len(check.input_cells) == 1 and check.input_cells[0] is not None):
+        # One cell cited: the value must say what that cell says. Citation text built from
+        # a cell reference is always "found", so this is the hallucination check.
+        sh, ref = check.input_cells[0]
+        if not _agrees(value, check.inputs[0], spec):
+            # Most often the reference is one column off. Use the single cell in that row
+            # that does hold the value, if there is exactly one.
+            hits = [(r, t) for r, t in _row_cells(source, sh, ref) if _agrees(value, t, spec)]
+            if len(hits) == 1:
+                r, t = hits[0]
+                log.info("cell %s!%s doesn't hold %r; %s does", sh, ref, value, r)
+                check = Check(True, f"[{sh}!{r}] {t}", check.pages, [f"{sh}!{r}"], [t],
+                              [(sh, r)])
+                conf = min(conf, 0.85)
+            else:
+                check = Check(False)
     if not check.ok:
         if equals_default(value, spec):
             return {"value": value, "citation": "", "confidence": round(min(conf, 0.8), 3)}

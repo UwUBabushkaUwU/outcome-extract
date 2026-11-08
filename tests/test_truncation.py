@@ -10,6 +10,7 @@ import pytest
 from app import chunking, llm, pipeline
 from app.chunking import Section, split_rows
 from app.pipeline import JobContext
+from conftest import rows_section
 
 SCHEMA = {
     "name": "units", "description": "One row per unit.",
@@ -20,7 +21,7 @@ SCHEMA = {
 }
 PREP = {"fields": {"unit": {"type": "string", "scope": "row"},
                    "rent": {"type": "number", "scope": "row"}}}
-UNIT_LINE = re.compile(r"Row (\d+): \[A\d+\] (U\d{3}) \| \[B\d+\] Rent \| \[C\d+\] (\d+)")
+UNIT_LINE = re.compile(r"row(\d+): (U\d{3}) \| Rent \| (\d+)")
 
 
 def _csv(path, units):
@@ -51,14 +52,14 @@ class TruncatingClient:
         system, user = params["messages"][0]["content"], params["messages"][1]["content"]
         if system == pipeline.PREP_SYSTEM:
             return _reply(json.dumps(PREP))
-        if system != pipeline.ROW_SYSTEM:
+        if system != pipeline.SHEET_ROW_SYSTEM:
             return _reply('{"fields": {}}')
-        rows_text = user.split("ROWS (", 1)[1]
+        rows_text = rows_section(user)
         units = UNIT_LINE.findall(rows_text)
         self.row_requests.append(rows_text)
         if len(units) > self.fits or self.always_truncate & {u for _, u, _ in units}:
             return _reply('{"rows": [{"unit": ["U0', finish="length")
-        rows = [{"unit": [u, f"[A{r}] {u}", 0.99], "rent": [int(rent), f"[C{r}] {rent}", 0.9]}
+        rows = [{"unit": [u, f"A{r}", 0.99], "rent": [int(rent), f"C{r}", 0.9]}
                 for r, u, rent in units]
         return _reply(json.dumps({"rows": rows}))
 
@@ -88,7 +89,7 @@ def test_truncated_chunk_is_split_until_it_fits(tmp_path, install):
     # Every request (whole chunk or half) starts on a unit line: no record was ever cut.
     for rows_text in client.row_requests:
         first = rows_text.split("<<<\n", 1)[1].splitlines()[0]
-        assert UNIT_LINE.match(first) or first.startswith("Row 1:"), first
+        assert UNIT_LINE.match(first) or first.startswith("row1:"), first
     # Some requests were truncated and retried as halves of at most 2 units that succeeded.
     sizes = [len(UNIT_LINE.findall(t)) for t in client.row_requests]
     assert max(sizes) > 2 and min(sizes) >= 1
