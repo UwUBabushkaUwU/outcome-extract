@@ -11,6 +11,7 @@ services:
     environment:
       - LLM_BASE_URL=${LLM_BASE_URL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
+      - WORKERS=8
     volumes:
       - ./data:/app/data
       - ./cache:/app/cache

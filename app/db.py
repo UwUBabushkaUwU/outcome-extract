@@ -14,6 +14,7 @@ Lifecycle: PENDING -> RUNNING -> SUCCESS | PARTIAL | FAILED.
 """
 
 import json
+import logging
 import sqlite3
 import time
 import uuid
@@ -22,6 +23,8 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from app import config
+
+log = logging.getLogger("app.db")
 
 TERMINAL = ("SUCCESS", "PARTIAL", "FAILED")
 
@@ -154,10 +157,19 @@ def get_job(job_id: str, org_id: str) -> dict[str, Any] | None:
 
 def _reclaim_expired(conn: sqlite3.Connection, now: float) -> None:
     ts = now_iso()
+    error_code = "WORKER_LOST"
+    error_msg = f"worker lease expired {config.MAX_ATTEMPTS} times; giving up"
     error = json.dumps({
-        "code": "WORKER_LOST",
-        "message": f"worker lease expired {config.MAX_ATTEMPTS} times; giving up",
+        "code": error_code,
+        "message": error_msg,
     })
+    failed_rows = conn.execute(
+        """SELECT id FROM jobs
+           WHERE status = 'RUNNING' AND lease_expires < ? AND attempts >= ?""",
+        (now, config.MAX_ATTEMPTS),
+    ).fetchall()
+    for r in failed_rows:
+        log.error("job=%s FAILED: [%s] %s", r["id"], error_code, error_msg)
     conn.execute(
         """UPDATE jobs SET status = 'FAILED', stage = NULL, error_json = ?, lease_owner = NULL,
                           lease_expires = NULL, updated_at = ?

@@ -89,10 +89,31 @@ def process_job(job: dict, worker_id: str) -> None:
         }
     except Exception as exc:  # noqa: BLE001 - any pipeline failure becomes FAILED with a reason
         status = "FAILED"
-        error = {"code": type(exc).__name__, "message": str(exc)[:1000] or repr(exc)}
-        log.error("job=%s FAILED: %s\n%s", job_id, error["message"], traceback.format_exc())
+        if isinstance(exc, llm.BudgetExceeded):
+            code = "BUDGET_EXCEEDED"
+        elif isinstance(exc, FileNotFoundError):
+            code = "FILE_NOT_FOUND"
+        elif isinstance(exc, (ValueError, KeyError)):
+            code = "INVALID_INPUT"
+        else:
+            code = type(exc).__name__
+        error = {"code": code, "message": str(exc)[:1000] or repr(exc)}
+        log.error("job=%s FAILED: [%s] %s\n%s", job_id, error["code"], error["message"], traceback.format_exc())
     finally:
         hb.stop.set()
+
+    if status in ("FAILED", "PARTIAL"):
+        if error is None:
+            error = {"code": f"{status}_ERROR", "message": f"Job ended with {status}"}
+        else:
+            if not error.get("code"):
+                error["code"] = f"{status}_ERROR"
+            if not error.get("message"):
+                error["message"] = f"Job ended with {status}"
+        if status == "FAILED":
+            log.error("job=%s FAILED: [%s] %s", job_id, error["code"], error["message"])
+        else:
+            log.warning("job=%s PARTIAL: [%s] %s", job_id, error["code"], error["message"])
 
     if not db.finish_job(job_id, worker_id, status, result, error):
         log.error("job=%s result discarded: lease no longer held by %s", job_id, worker_id)

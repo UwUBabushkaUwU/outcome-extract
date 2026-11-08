@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -63,20 +63,22 @@ class PipelineOutput:
 
 
 class _Errors:
-    def __init__(self):
+    def __init__(self, job_id: str | None = None):
+        self.job_id = job_id
         self._items: list[str] = []
         self._budget: str | None = None
         self._lock = threading.Lock()
 
     def add(self, step: str, exc: Exception) -> None:
+        prefix = f"job={self.job_id} " if self.job_id else ""
         with self._lock:
             if isinstance(exc, llm.BudgetExceeded):
                 if self._budget is None:
-                    log.error("step %s stopped: %s", step, exc)
+                    log.error("%sstep %s stopped: %s", prefix, step, exc)
                     self._budget = str(exc)
                 self._items.append(f"{step}: skipped, budget spent")
                 return
-            log.error("step %s failed: %s", step, exc)
+            log.error("%sstep %s failed: %s", prefix, step, exc)
             self._items.append(f"{step}: {str(exc)[:300]}")
 
     def __bool__(self) -> bool:
@@ -248,7 +250,8 @@ def _doc_header(schema: dict) -> str:
 # --------------------------------------------------------------------------- steps
 
 
-def transcribe_pages(doc, usage: Usage, errors: _Errors, pool: ThreadPoolExecutor) -> None:
+def transcribe_pages(doc, usage: Usage, errors: _Errors, pool: ThreadPoolExecutor,
+                     set_stage: Callable[[str], None] | None = None) -> None:
     """Replace the text of each page that has an image (no usable text layer) with a
     transcription. The llm disk cache makes re-runs free."""
     by_page = {}
@@ -275,10 +278,25 @@ def transcribe_pages(doc, usage: Usage, errors: _Errors, pool: ThreadPoolExecuto
         text = out.get("text") if isinstance(out, dict) else None
         return page_no, text if isinstance(text, str) else None
 
-    for page_no, text in pool.map(lambda pi: one(*pi), doc.images):
-        idx = by_page.get(f"[Page {page_no}]")
-        if text and idx is not None and len(text.strip()) > len(doc.chunks[idx].text.strip()):
-            doc.chunks[idx].text = text
+    total_images = len(doc.images)
+    if set_stage:
+        set_stage(f"TRANSCRIBING 0/{total_images}")
+
+    futures = [pool.submit(one, page_no, png) for page_no, png in doc.images]
+    completed = 0
+    for fut in as_completed(futures):
+        try:
+            page_no, text = fut.result()
+        except Exception as exc:
+            errors.add("transcribe", exc)
+            page_no, text = None, None
+        completed += 1
+        if set_stage:
+            set_stage(f"TRANSCRIBING {completed}/{total_images}")
+        if page_no is not None and text:
+            idx = by_page.get(f"[Page {page_no}]")
+            if idx is not None and len(text.strip()) > len(doc.chunks[idx].text.strip()):
+                doc.chunks[idx].text = text
 
 
 _prep_memo: dict[str, dict] = {}
@@ -369,51 +387,85 @@ def extract_rows(schema, specs, keys, primary, chunk: chunking.RowChunk, usage, 
 
 def run(ctx: JobContext) -> PipelineOutput:
     schema = ctx.schema
-    errors = _Errors()
+    errors = _Errors(job_id=ctx.job_id)
     primary = normalize.primary_key(schema)
 
     ctx.set_stage("PARSING")
     doc = parsers.parse(ctx.file_path, ctx.file_type)  # detected type, never the filename
 
-    with ThreadPoolExecutor(CONCURRENCY, thread_name_prefix=f"job-{ctx.job_id[:8]}") as pool:
-        ctx.set_stage("PREPARING")
+    # Documents with more than 10 chunks run with concurrency 6 (default 4).
+    initial_concurrency = 6 if len(doc.chunks) > 10 else CONCURRENCY
+    with ThreadPoolExecutor(initial_concurrency, thread_name_prefix=f"job-{ctx.job_id[:8]}-prep") as pool:
         prep = pool.submit(prepare_fields, schema, ctx.usage, errors)
         if doc.images:
-            transcribe_pages(doc, ctx.usage, errors, pool)
+            transcribe_pages(doc, ctx.usage, errors, pool, set_stage=ctx.set_stage)
+        else:
+            ctx.set_stage("PREPARING")
         specs = prep.result()
 
-        sections = chunking.build_sections(doc)
-        source = normalize.Source(sections)
-        keys = list(schema["fields"])
-        row_keys = [k for k in keys if primary and specs[k]["scope"] == "row"]
-        doc_keys = [k for k in keys if k not in row_keys]
+    sections = chunking.build_sections(doc)
+    source = normalize.Source(sections)
+    keys = list(schema["fields"])
+    row_keys = [k for k in keys if primary and specs[k]["scope"] == "row"]
+    doc_keys = [k for k in keys if k not in row_keys]
 
-        ctx.set_stage("EXTRACTING")
+    chunks: list[chunking.RowChunk] = []
+    if row_keys:
+        labels = [primary, schema["fields"][primary].get("name", "")]
+        # Few enough records per chunk that the reply fits in ROWS_MAX_TOKENS (with
+        # headroom): a wide table gets smaller chunks than a narrow one.
+        max_records = max(3, int(ROWS_MAX_TOKENS * 0.7)
+                          // (len(row_keys) * _TOKENS_PER_ROW_FIELD + 10))
+        for sec in sections:
+            chunks.extend(chunking.split_rows(sec, labels, max_records=max_records))
+
+    effective_concurrency = 6 if (len(chunks) > 10 or len(doc.chunks) > 10) else CONCURRENCY
+    log.info("job=%s chunks=%d doc_chunks=%d concurrency=%d",
+             ctx.job_id, len(chunks), len(doc.chunks), effective_concurrency)
+
+    with ThreadPoolExecutor(effective_concurrency, thread_name_prefix=f"job-{ctx.job_id[:8]}") as pool:
         doc_future = None
         if doc_keys:
             full = chunking.render_full(sections, DOC_TEXT_MAX_CHARS)
             doc_future = pool.submit(extract_document, schema, specs, doc_keys, full,
                                      ctx.usage, errors)
-        chunks: list[chunking.RowChunk] = []
-        if row_keys:
-            labels = [primary, schema["fields"][primary].get("name", "")]
-            # Few enough records per chunk that the reply fits in ROWS_MAX_TOKENS (with
-            # headroom): a wide table gets smaller chunks than a narrow one.
-            max_records = max(3, int(ROWS_MAX_TOKENS * 0.7)
-                              // (len(row_keys) * _TOKENS_PER_ROW_FIELD + 10))
-            for sec in sections:
-                chunks.extend(chunking.split_rows(sec, labels, max_records=max_records))
-        row_futures = [pool.submit(extract_rows, schema, specs, row_keys, primary, c,
-                                   ctx.usage, errors) for c in chunks]
-        raw_doc = doc_future.result() if doc_future else {}
-        raw_rows = [f.result() for f in row_futures]
 
-    ctx.set_stage("NORMALIZING")
+        if chunks:
+            total_chunks = len(chunks)
+            ctx.set_stage(f"EXTRACTING 0/{total_chunks}")
+            chunk_futures = {
+                pool.submit(extract_rows, schema, specs, row_keys, primary, c, ctx.usage, errors): i
+                for i, c in enumerate(chunks)
+            }
+            raw_rows = [None] * total_chunks
+            extracted = 0
+            for fut in as_completed(chunk_futures):
+                idx = chunk_futures[fut]
+                try:
+                    raw_rows[idx] = fut.result()
+                except Exception as exc:
+                    errors.add(f"rows chunk {idx}", exc)
+                    raw_rows[idx] = []
+                extracted += 1
+                ctx.set_stage(f"EXTRACTING {extracted}/{total_chunks}")
+        else:
+            ctx.set_stage("EXTRACTING")
+            raw_rows = []
+
+        raw_doc = {}
+        if doc_future:
+            try:
+                raw_doc = doc_future.result()
+            except Exception as exc:
+                errors.add("document fields", exc)
+                raw_doc = {}
+
+    ctx.set_stage("VERIFYING")
     doc_fields = {k: normalize.finalize_field(raw_doc.get(k), specs[k], source) for k in doc_keys}
     rows = []
     for chunk, chunk_rows in zip(chunks, raw_rows):
         chunk_norm = normalize.norm_text("\n".join(chunk.header + chunk.lines))
-        for r in chunk_rows:
+        for r in (chunk_rows or []):
             if chunk.sheet:  # cell references -> "[F12] <cell text>", built from the sheet
                 r = {k: _with_cell_citation(v, source, chunk.sheet) for k, v in r.items()}
             rows.append({k: normalize.finalize_field(r.get(k), specs[k], source, chunk.sheet,
@@ -424,8 +476,11 @@ def run(ctx: JobContext) -> PipelineOutput:
     entries = normalize.assemble(schema, doc_fields, rows)
 
     if errors:
-        return PipelineOutput("PARTIAL", entries, errors.as_error())
+        err = errors.as_error()
+        log.warning("job=%s PARTIAL: [%s] %s", ctx.job_id, err["code"], err["message"])
+        return PipelineOutput("PARTIAL", entries, err)
     if primary and row_keys and not rows:
-        return PipelineOutput("PARTIAL", entries, {"code": "NO_ROWS",
-                                                   "message": "no table rows were found"})
+        err = {"code": "NO_ROWS", "message": "no table rows were found"}
+        log.warning("job=%s PARTIAL: [%s] %s", ctx.job_id, err["code"], err["message"])
+        return PipelineOutput("PARTIAL", entries, err)
     return PipelineOutput("SUCCESS", entries)

@@ -171,3 +171,113 @@ def test_scanned_page_is_transcribed_and_cited(tmp_path, fake_llm):
     assert msgs[1]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert out.entries[0]["rent"]["value"] == 4250
     assert out.entries[0]["rent"]["page_numbers"] == [1]
+
+
+def test_stage_progress_and_concurrency_for_large_chunks(tmp_path, fake_llm, monkeypatch):
+    fake_llm.prep = lambda m: PREP
+    fake_llm.rows = _rows_from_prompt
+    stages = []
+
+    path = _csv(tmp_path, units=350)
+    ctx = JobContext("job-test-stages", path, "csv", path.name, SCHEMA,
+                     set_stage=lambda s: stages.append(s))
+
+    captured_concurrency = []
+    orig_executor = pipeline.ThreadPoolExecutor
+
+    def tracking_executor(max_workers, *args, **kwargs):
+        captured_concurrency.append(max_workers)
+        return orig_executor(max_workers, *args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "ThreadPoolExecutor", tracking_executor)
+
+    out = pipeline.run(ctx)
+    assert out.status == "SUCCESS"
+    assert 6 in captured_concurrency  # Concurrency scaled to 6 for >10 chunks
+
+    assert stages[0] == "PARSING"
+    assert "PREPARING" in stages
+    assert any(s.startswith("EXTRACTING 0/") for s in stages)
+    extracting_stages = [s for s in stages if s.startswith("EXTRACTING ")]
+    assert len(extracting_stages) > 10
+    total_chunks = int(extracting_stages[0].split("/")[1])
+    assert f"EXTRACTING {total_chunks}/{total_chunks}" in stages
+    assert stages[-1] == "VERIFYING"
+
+
+def test_transcribing_stage_progress(tmp_path, fake_llm):
+    doc = pymupdf.open()
+    doc.new_page()  # page 1
+    doc.new_page()  # page 2
+    path = tmp_path / "scan2.pdf"
+    doc.save(path)
+    schema = {"name": "lease", "fields": {"rent": {"name": "Rent", "description": "Base rent."}}}
+    fake_llm.prep = lambda m: {"fields": {"rent": {"type": "number"}}}
+    fake_llm.transcribe = lambda m: {"text": "ARTICLE 3\nBase Rent: $4,250.00 per month"}
+    fake_llm.doc = lambda m: {"fields": {"rent": {"value": 4250, "citation": "[Page 1] Base Rent: $4,250.00",
+                                                "confidence": 0.9}}}
+
+    stages = []
+    ctx = JobContext("job-scan", path, "pdf", path.name, schema,
+                     set_stage=lambda s: stages.append(s))
+    out = pipeline.run(ctx)
+    assert out.status == "SUCCESS"
+    assert "PARSING" in stages
+    assert "TRANSCRIBING 0/2" in stages
+    assert "TRANSCRIBING 1/2" in stages
+    assert "TRANSCRIBING 2/2" in stages
+    assert "VERIFYING" in stages
+
+
+def test_worker_logs_job_id_and_code_on_failure(caplog, tmp_path):
+    import logging
+    from app import db, worker
+
+    job, _ = db.create_job(org_id="test", idem_key="fail_key", filename="missing.csv",
+                           file_path="files/nonexistent.csv", file_type="csv",
+                           schema={"fields": {"x": {}}}, webhook_url=None)
+    claimed = db.claim_job("w1")
+    assert claimed is not None and claimed["id"] == job["id"]
+    with caplog.at_level(logging.ERROR):
+        worker.process_job(claimed, "w1")
+    finished = db.get_job(job["id"], "test")
+    assert finished["status"] == "FAILED"
+    assert finished["error"]["code"] == "FILE_NOT_FOUND"
+    assert finished["error"]["message"]
+    assert any(job["id"] in r.message and "FAILED" in r.message and "FILE_NOT_FOUND" in r.message
+               for r in caplog.records)
+
+
+def test_worker_logs_job_id_and_code_on_partial(caplog, tmp_path, fake_llm):
+    import logging
+    from app import config, db, worker
+
+    fake_llm.prep = lambda m: PREP
+    calls = {"n": 0}
+
+    def flaky(messages):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return llm.LLMError("all models failed: 429")
+        return _rows_from_prompt(messages)
+
+    fake_llm.rows = flaky
+    csv_file = _csv(tmp_path, units=100)
+    rel_path = f"files/{csv_file.name}"
+    target = config.DATA_DIR / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(csv_file.read_bytes())
+
+    job, _ = db.create_job(org_id="test", idem_key="partial_key", filename="rr.csv",
+                           file_path=rel_path, file_type="csv",
+                           schema=SCHEMA, webhook_url=None)
+    claimed = db.claim_job("w2")
+    assert claimed is not None and claimed["id"] == job["id"]
+    with caplog.at_level(logging.WARNING):
+        worker.process_job(claimed, "w2")
+    finished = db.get_job(job["id"], "test")
+    assert finished["status"] == "PARTIAL"
+    assert finished["error"]["code"] == "PARTIAL_EXTRACTION"
+    assert finished["error"]["message"]
+    assert any(job["id"] in r.message and "PARTIAL" in r.message and "PARTIAL_EXTRACTION" in r.message
+               for r in caplog.records)

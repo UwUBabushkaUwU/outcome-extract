@@ -1,5 +1,13 @@
 # Document extraction service
 
+## Quick start
+
+1. Set `LLM_BASE_URL` and `LLM_API_KEY` in `.env`.
+2. Start the service: `docker compose up` (listens on `http://localhost:8080`).
+3. Check health: `curl http://localhost:8080/health`.
+4. Submit a job: `curl -F "file=@doc.pdf" -F "schema=<schema.json" http://localhost:8080/jobs`.
+5. Poll result: `curl http://localhost:8080/jobs/<job_id>` until status is `SUCCESS`.
+
 **Role: AI/ML Developer**
 
 You give the service a commercial real estate document (PDF, DOCX, XLSX or CSV) and a field list (a JSON schema of field names and descriptions). It returns the extracted values as JSON, in the format of `ref/contract/output.schema.json`. `POST /jobs` accepts the upload and returns at once. Worker processes then do the work in the background. Each document is parsed to text, and scanned pages are transcribed by Gemini Flash. A table document is split into chunks of whole records. One model call extracts the document-level fields, and one call per chunk extracts the table rows. Every value must be backed by a citation that is found in the document; any value whose citation can't be found becomes null. You poll `GET /jobs/{id}` until the status is `SUCCESS`, `PARTIAL` or `FAILED`. See [DESIGN.md](DESIGN.md) for how it works and why.
