@@ -14,7 +14,7 @@ import traceback
 
 import httpx
 
-from app import config, db, normalize, pipeline
+from app import config, db, llm, normalize, pipeline
 
 log = logging.getLogger("app.worker")
 
@@ -57,8 +57,19 @@ def process_job(job: dict, worker_id: str) -> None:
     job_id = job["id"]
     log.info("job=%s claimed by %s (attempt %d) file=%r type=%s",
              job_id, worker_id, job["attempts"], job["filename"], job["file_type"])
+    if job.get("llm_calls"):
+        log.info("job=%s resuming with $%.4f / %d calls already spent by earlier attempts",
+                 job_id, job["llm_cost_usd"], job["llm_calls"])
     hb = _Heartbeat(job_id, worker_id)
     hb.start()
+    usage = llm.Usage(
+        label=f"job={job_id[:8]}",
+        # The budget is per job, not per attempt: a job recovered after a crash or restart
+        # continues from what its earlier attempts spent.
+        spent_calls=job.get("llm_calls") or 0,
+        spent_cost_usd=job.get("llm_cost_usd") or 0.0,
+        on_spend=lambda calls, cost: db.record_spend(job_id, worker_id, calls, cost),
+    )
     ctx = pipeline.JobContext(
         job_id=job_id,
         file_path=config.DATA_DIR / job["file_path"],
@@ -66,6 +77,7 @@ def process_job(job: dict, worker_id: str) -> None:
         filename=job["filename"],
         schema=job["schema"],
         set_stage=lambda stage: db.set_stage(job_id, worker_id, stage),
+        usage=usage,
     )
     result = error = None
     try:

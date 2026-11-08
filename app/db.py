@@ -4,8 +4,10 @@ Lifecycle: PENDING -> RUNNING -> SUCCESS | PARTIAL | FAILED.
 
 * A worker claims the oldest PENDING job under BEGIN IMMEDIATE, so two workers never get the
   same job. The claim sets a lease (lease_owner, lease_expires) that the worker renews.
-* A RUNNING job whose lease has expired (its worker crashed or hung) goes back to PENDING.
-  After MAX_ATTEMPTS claims it is FAILED instead, so a document that kills workers can't loop.
+* A RUNNING job whose lease has expired (its worker crashed or hung, or the service was
+  restarted) goes back to PENDING. After MAX_ATTEMPTS claims it is FAILED instead, so a
+  document that kills workers can't loop. Its LLM spend (llm_calls, llm_cost_usd) is kept
+  on the row, so a recovered attempt continues the job's budget instead of starting a new one.
 * Terminal states are written only with WHERE status='RUNNING' AND lease_owner=<me>. Once a
   job is terminal, nothing can change it, and a worker that lost its lease can't overwrite
   the result of the worker that took the job over.
@@ -38,6 +40,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     result_json   TEXT,
     error_json    TEXT,
     attempts      INTEGER NOT NULL DEFAULT 0,
+    llm_calls     INTEGER NOT NULL DEFAULT 0,
+    llm_cost_usd  REAL NOT NULL DEFAULT 0,
     lease_owner   TEXT,
     lease_expires REAL,
     created_at    TEXT NOT NULL,
@@ -81,11 +85,21 @@ def _write_tx(conn: sqlite3.Connection) -> Iterator[None]:
     conn.execute("COMMIT")
 
 
+_MIGRATIONS = {  # columns added after the first release, for existing databases
+    "llm_calls": "ALTER TABLE jobs ADD COLUMN llm_calls INTEGER NOT NULL DEFAULT 0",
+    "llm_cost_usd": "ALTER TABLE jobs ADD COLUMN llm_cost_usd REAL NOT NULL DEFAULT 0",
+}
+
+
 def init_db() -> None:
     config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _conn() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(_SCHEMA)
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(jobs)")}
+        for column, ddl in _MIGRATIONS.items():
+            if column not in have:
+                conn.execute(ddl)
 
 
 def _row_to_job(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -184,6 +198,18 @@ def renew_lease(job_id: str, worker_id: str, lease_seconds: float | None = None)
             """UPDATE jobs SET lease_expires = ?
                WHERE id = ? AND status = 'RUNNING' AND lease_owner = ?""",
             (time.time() + lease, job_id, worker_id),
+        )
+    return cur.rowcount == 1
+
+
+def record_spend(job_id: str, worker_id: str, calls: int, cost_usd: float) -> bool:
+    """Store the job's total LLM spend so far. It survives a crash: the next attempt of the
+    job starts from it, so the per-job caps hold across restarts."""
+    with _conn() as conn:
+        cur = conn.execute(
+            """UPDATE jobs SET llm_calls = MAX(llm_calls, ?), llm_cost_usd = MAX(llm_cost_usd, ?)
+               WHERE id = ? AND status = 'RUNNING' AND lease_owner = ?""",
+            (calls, cost_usd, job_id, worker_id),
         )
     return cur.rowcount == 1
 
