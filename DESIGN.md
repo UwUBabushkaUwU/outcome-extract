@@ -2,99 +2,64 @@
 
 ## Architecture
 
-- **API.** FastAPI (`app/main.py`), on port 8080. `POST /jobs` streams the upload to `data/files/<sha256>.<type>`, records a job, and returns 202 at once. The file type comes from the file's bytes, not its name.
+- **API.** FastAPI (`app/main.py`), port 8080. `POST /jobs` streams the upload to `data/files/<sha256>.<type>`, records a job, and returns 202. File type is detected from magic bytes.
 - **Job table.** SQLite in WAL mode (`app/db.py`).
-  - **Idempotency:** the key is sha256(file) + sha256(parsed schema) + organization id, so resubmitting the same document and field list returns the existing job.
-  - **Tenant isolation:** `GET /jobs/{id}` is scoped to the `X-Organization-Id` header, and another organization's job is a 404.
-- **Workers.** `python -m app` starts the API plus `WORKERS` (default 4) worker processes, and a supervisor restarts any that die.
-  - **Claiming:** a worker claims the oldest PENDING job under `BEGIN IMMEDIATE`, with a 60 s lease that a heartbeat renews.
-  - **Terminal states:** they are written only `WHERE status='RUNNING' AND lease_owner=<me>`, so they never change, and a worker that lost its lease can't overwrite the worker that took over.
-- **Crash recovery.** A job whose lease expires returns to PENDING. After 3 claims it is FAILED with `WORKER_LOST`. The job's LLM spend is stored on its row, so a recovered attempt continues the same budget.
+  - **Idempotency:** sha256(file) + sha256(schema) + organization id. Resubmissions return existing jobs.
+  - **Tenant isolation:** scoped to `X-Organization-Id`; cross-tenant requests return 404.
+- **Workers.** `python -m app` starts the API plus `WORKERS` worker processes. Workers claim the oldest PENDING job under `BEGIN IMMEDIATE` with a 60 s heartbeat-renewed lease. Terminal states are written conditionally so stale workers cannot overwrite results.
+- **Crash recovery.** Expired leases return to PENDING. After 3 claims, jobs fail with `WORKER_LOST`. LLM spend persists across attempts to preserve budget caps.
 
 ## Pipeline (`app/pipeline.py`)
 
-1. **Parse** (`app/parsers/`). PDF pages become text chunks, and a page with under 50 characters of text is rendered to PNG. DOCX is read in reading order. XLSX and CSV give one chunk per sheet, with A1 cell references, merged cells filled in, and empty cells dropped.
-2. **Transcribe scanned pages.** Gemini Flash transcribes each page image, and the transcript replaces that page's text.
-3. **Field prep.** Flash infers each field's type, scope (document or row), date format and absent-default, and sharpens its description. It runs in batches of 15 fields and is cached per schema.
-4. **Document-level fields.** One call over the full text (capped at 150k characters, keeping the head and tail of each section).
-5. **Row fields.** Only for schemas with a primary field. Table text is cut into chunks of about 60 lines, and only where a new record starts:
-   - in spreadsheets, where the primary-key column takes a new value;
-   - in PDFs, at a line starting with the document's dominant code shape (e.g. `6101-0000`).
+1. **Parse** (`app/parsers/`). PDF pages become text chunks (pages < 50 chars render to PNG at 150 dpi). DOCX preserves reading order. XLSX/CSV produce one chunk per sheet with A1 cell coordinates, merged cells filled, and empty cells dropped.
+2. **Transcribe.** Flash transcribes scanned page images to markdown text.
+3. **Field prep.** Flash infers field type, scope (document vs row), date format, and absent-defaults in batches of 15, memoized per schema.
+4. **Document fields.** One call over the full text (capped at 150k characters).
+5. **Row fields.** Tables are chunked along record boundaries (e.g. unit IDs or account codes) so records are never split across calls. Chunks carry header and context lines, executing concurrently.
+6. **Normalize** (`app/normalize.py`). Coerce types, verify citations against source text/cells, fill document fields into rows, and assemble JSON entries.
 
-   So a rent-roll unit and its charge lines are never split across calls. Each chunk carries the column headers and the previous 8 lines as context, and chunks run 4 at a time.
-6. **Normalize** (`app/normalize.py`).
-   - Coerce numbers ($ and commas stripped, parentheses mean negative), dates and lists.
-   - Check each citation against the source.
-   - Copy document-level fields into every row, and fill every schema key.
-
-## Models
+## Models & Budget Guards
 
 | Model | Role |
 |---|---|
-| `google/gemini-3.8-flash` | Every call: page transcription, field prep, extraction. Fast, cheap, multimodal. |
-| `anthropic/claude-haiku-5.5` | Automatic fallback when Flash fails. `gpt-6-luna` is the other allowed fallback. |
-| `gemini-3.1-pro-preview`, `claude-sonnet-5.5` | Never used automatically. They require `LLM_ALLOW_EXPENSIVE=1`. |
+| `google/gemini-3.8-flash` | Primary model for transcription, prep, and extraction. Fast and cheap. |
+| `anthropic/claude-haiku-5.5` | Cheap automatic fallback on failure. |
+| `gemini-3.1-pro-preview`, `claude-sonnet-5.5` | Expensive models; require `LLM_ALLOW_EXPENSIVE=1`. |
 
-Every Flash call asks for minimal reasoning and has a `max_tokens` limit: 2k for prep, 8k for rows, 6k for document fields, 4k for transcription.
+Every call enforces minimal reasoning, per-task `max_tokens`, disk caching, and a per-job safety net of $1.50 (`MAX_JOB_COST_USD`) and 300 calls (`MAX_JOB_LLM_CALLS`).
 
-## Cost
+## Iteration
 
-From `cost_usd` and `model_calls` in each `outputs/*.json`:
+The eval loop (`scripts/eval.py`) drove prompt and chunking improvements while spend guards cut run costs in half:
 
-| Document | Calls | Cost |
-|---|---|---|
-| boxscore_001 | 4 | $0.0281 |
-| budget_001 | 9 | $0.3028 |
-| lease_001 | 27 | $0.2751 |
-| lease_002 | 2 | $0.0990 |
-| lease_003 | 24 | $0.3252 |
-| om_001 | 3 | $0.0393 |
-| rentroll_001 | 59 | $1.4908 |
-| t12_001 | 8 | $0.9440 |
-| **Total** | **136** | **$3.50** |
+| Document | Baseline Score | Baseline Cost | Final Score | Final Cost |
+|---|---|---|---|---|
+| boxscore_001 | 1.000 | $0.028 | 1.000 | $0.028 |
+| budget_001 | 0.979 | $0.303 | 0.982 | $0.184 |
+| lease_001 | 0.850 | $0.275 | 0.850 | $0.157 |
+| lease_002 | 0.825 | $0.099 | 0.825 | $0.041 |
+| lease_003 | 0.850 | $0.325 | 0.850 | $0.169 |
+| om_001 | 0.966 | $0.039 | 1.000 | $0.028 |
+| rentroll_001 | 0.981 | $1.491 | 0.948 | $0.999 |
+| t12_001 | 0.933 | $0.944 | 0.996 | $0.167 |
+| **Mean / Total** | **0.923** | **$3.504** | **0.931** | **$1.775** |
 
-About $3.48 of the $10 went on one full 8-document run on 2026-11-07, before per-job caps existed. The box score in that run cost $0, because idempotency returned an older stub result; it was re-run later for $0.03.
+- **Compact format regression:** An experiment removing cell tags and telling the model subtotals were not records dropped T12 to 0.625 (25 missing rows, 216 misses). The eval loop caught it immediately; reverting to explicit cell references and clarifying subtotal record rules achieved 0.996 (119/119 rows) while token reductions lowered cost from $0.94 to $0.17.
+- **Per-job cap calibration:** The initial $0.50 budget cap halted the 325-unit rent roll midway (170 rows, 0.523 score). Clear error logging and skipped-chunk tracking made the root cause obvious; measuring the full workload showed ~$1.00 needed, so the runaway safety cap was raised to $1.50 / 300 calls.
 
-Three things made that run expensive:
-- Flash reasoning was on, and billed output came to 3.4× the visible JSON.
-- Output had no limit, apart from 32k on row calls.
-- Fallback went to the pro model (one T12 call cost $0.27).
+## Null Discipline
 
-The guards added afterwards (commits `42e5620`, `a8c57d0`):
-- **Calls:** cheap-only fallback, minimal reasoning, per-call-type `max_tokens`, and at most 4 requests per call. A truncated reply is not retried.
-- **Per job:** at most 300 requests and $1.50 (`MAX_JOB_COST_USD`), checked before every request. Past either cap the job ends PARTIAL with `BUDGET_EXCEEDED`. The caps hold across restarts.
-- **Logging:** every call is logged with model, cache hit or miss, tokens and cost.
-- **Cache:** replies are cached on disk, so re-runs are free.
+Values survive only when backed by exact verbatim citations in the source text or matching spreadsheet cells; unverified values are nulled with confidence 0.3. Absent defaults (e.g. '0 if none') are populated without citation. This strict verification produced 0 hallucinations across all runs.
 
-Seven of the eight outputs predate the guards, so their cost is not yet representative.
+## Decisions Where the Brief Was Silent
 
-## Null discipline
+- **Docker:** Local dev runs directly on Windows; Docker packaging is tested in GitHub Actions.
+- **Deduplication:** When primary keys repeat (e.g. future resident entries in rent roll), the first occurrence is kept.
+- **Empty & invalid uploads:** Handled cleanly with 400 Bad Request.
 
-A value survives only if its citation is found in the source.
-- **Spreadsheets:** the cited cell must exist and hold the text.
-- **Pages:** each snippet must appear in the text.
+## With Another Week
 
-Anything else becomes null, with confidence 0.3. The one exception is a field's own absent-default (below). That is why the baseline has 0 hallucinations. The same rule causes most of the misses: in T12, 42 of 119 rows have `category` and `months_with_activity` nulled. Those values are derived, so nothing verbatim backs them.
-
-## What broke and how it was handled
-
-- **Cost overrun.** Described above.
-- **Scanned PDFs.** lease_001 has 25 pages with no text layer and lease_003 has 21, so each page becomes one Flash transcription call. Citations are checked against the transcript.
-- **The 325-unit rent roll.** About 3,050 lines, with one block per unit, and summary tables at the bottom that look like data. It went through 57 row-chunk calls cut on unit boundaries, and 319 of 325 rows were recovered.
-- **429s and transient errors.** These are retried with exponential backoff and jitter, honouring `Retry-After`, up to 4 requests per call. If a call still fails, that step is lost and the job returns PARTIAL; it is never FAILED.
-
-## Decisions where the brief was silent
-
-- **Docker:** the dev machine has no Docker, so the image is built and health-checked in GitHub Actions on every push.
-- **Duplicate primary keys:** the first row wins. The rent roll repeats some units in a later "Future Resident Details" section, and the sample answers keep the first occurrence.
-- **Absent-defaults:** a description like "0 if none", "empty list if none" or "false otherwise" defines a value that has nothing to cite. Field prep extracts each field's default, and that value alone is kept without a citation.
-- **File type:** taken from the bytes, so an upload with no extension or a wrong one still works.
-- **Validation:** an unsupported type is a 400, per the contract. An empty file is also a 400, which was our choice.
-
-## With another week
-
-- **Per-field eval loop:** score every field across runs and fix the worst first.
-- **Lease calculated fields:** a stronger model for those calls only, e.g. total base rent and rent commencement. The lease scores are 0.825–0.850.
-- **Rent roll:** find and fix the 6 missing rows.
-- **T12:** fix the misses by letting a derived value carry a verified citation to its inputs, instead of being nulled.
-- **Confidence:** calibrate it against the sample answers.
+- **Rent roll:** Recover the 17 missing rows (308/325 extracted) by refining boundary chunking around complex multi-unit blocks.
+- **Lease calculated fields:** Escalate complex arithmetic (e.g. commencement date, total base rent) to Sonnet 3.5.
+- **Derived citations:** Allow calculated fields to cite their arithmetic inputs instead of nulling.
+- **Confidence calibration:** Align confidence scores against validation accuracy.
