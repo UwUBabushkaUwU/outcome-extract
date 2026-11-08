@@ -256,3 +256,11 @@ def test_failures_are_not_cached(fake):
         llm.chat_json(MSG, usage=llm.Usage())
     assert llm.chat_json(MSG, usage=llm.Usage()) == {"ok": 1}
     assert len(client.requests) == 3
+
+
+def test_cache_can_be_disabled_via_env(fake, monkeypatch):
+    client = fake([_reply('{"a": 1}'), _reply('{"a": 2}')])
+    monkeypatch.setenv("LLM_CACHE", "off")
+    assert llm.chat_json(MSG, usage=llm.Usage()) == {"a": 1}
+    assert llm.chat_json(MSG, usage=llm.Usage()) == {"a": 2}
+    assert len(client.requests) == 2

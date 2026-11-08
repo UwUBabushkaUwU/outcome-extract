@@ -162,8 +162,10 @@ ROW_SYSTEM = ("You extract table records from part of a document.\n"
   may span several lines (e.g. a unit line followed by its charge lines): fold them into one.
 - CONTEXT (column headers, the headings above this part, and the lines just before ROWS)
   is for reference only: never return a record that starts in CONTEXT.
-- Follow the document description to decide what is a record. Totals, subtotals, section
-  headers and summary tables are not records unless the description says so.
+- Follow the document description to decide what is a record. When records have a primary
+  code or identifier (like a GL code or account number), every line that carries its own
+  code and an amount is a record (including subtotal or total lines with their own code).
+  Section headers and subtotals without their own code are not records.
 Return JSON: {"rows": [{"<key>": [value, "citation", confidence], ...}, ...]} with every
 requested key in every record, or {"rows": []} if ROWS holds no records.""")
 

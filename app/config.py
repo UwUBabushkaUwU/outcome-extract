@@ -3,6 +3,12 @@
 import os
 from pathlib import Path
 
+try:
+    import dotenv
+    dotenv.load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+
 ROOT = Path(__file__).resolve().parent.parent
 
 

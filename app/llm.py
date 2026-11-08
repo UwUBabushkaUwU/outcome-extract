@@ -62,6 +62,13 @@ RETRY_AFTER_CAP = float(os.environ.get("LLM_RETRY_AFTER_CAP", 120.0))
 TIMEOUT = float(os.environ.get("LLM_TIMEOUT", 120.0))
 CACHE_ENABLED = os.environ.get("LLM_CACHE", "1") != "0"
 
+
+def is_cache_enabled() -> bool:
+    if not CACHE_ENABLED:
+        return False
+    val = os.environ.get("LLM_CACHE", "1").strip().lower()
+    return val not in ("0", "off", "false", "no", "disabled")
+
 _RETRYABLE_STATUS = {408, 409, 425, 429} | set(range(500, 600))
 
 
@@ -234,7 +241,7 @@ def _cache_path(key: str):
 
 
 def _cache_get(key: str) -> dict | None:
-    if not CACHE_ENABLED:
+    if not is_cache_enabled():
         return None
     try:
         return json.loads(_cache_path(key).read_text(encoding="utf-8"))
@@ -243,7 +250,7 @@ def _cache_get(key: str) -> dict | None:
 
 
 def _cache_put(key: str, entry: dict) -> None:
-    if not CACHE_ENABLED:
+    if not is_cache_enabled():
         return
     path = _cache_path(key)
     try:
