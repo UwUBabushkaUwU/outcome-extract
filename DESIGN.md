@@ -2,17 +2,21 @@
 
 ## Spend: the $3.48 run and the guards it led to
 
-**What happened.** On 2026-11-07 a single run of all 8 sample documents cost $3.48, about a third of the $10 budget. We first took it for one box-score job, but the job table shows otherwise. The box score had been submitted earlier, under the stub pipeline. Idempotency returned that stored all-null result, so the box score cost $0. The $3.48 is the other seven documents:
+**What happened.** The overspend was a full 8-document run with no per-job cost caps. It is now guarded. The run on 2026-11-07 cost $3.48, about a third of the $10 budget. We first took it for one box-score job, but the job table shows otherwise. The box score had been submitted earlier, under the stub pipeline. Idempotency returned that stored all-null result, so the box score cost $0 in that run. The $3.48 is the other seven documents.
 
-| Document | Calls | Cost |
-|---|---|---|
-| rentroll_001 | 59 | $1.49 |
-| t12_001 | 8 | $0.94 (one call fell back to gemini-3.1-pro-preview: $0.27) |
-| lease_003 | 24 | $0.33 |
-| budget_001 | 9 | $0.30 |
-| lease_001 | 27 | $0.28 |
-| lease_002 | 2 | $0.10 |
-| om_001 | 3 | $0.04 |
+Cost per document of the committed baseline outputs (`outputs/*.json` metadata):
+
+| Document | Calls | Cost | Run |
+|---|---|---|---|
+| boxscore_001 | 4 | $0.0281 | 2026-11-08, with guards |
+| budget_001 | 9 | $0.3028 | 2026-11-07, no guards |
+| lease_001 | 27 | $0.2751 | 2026-11-07, no guards |
+| lease_002 | 2 | $0.0990 | 2026-11-07, no guards |
+| lease_003 | 24 | $0.3252 | 2026-11-07, no guards |
+| om_001 | 3 | $0.0393 | 2026-11-07, no guards |
+| rentroll_001 | 59 | $1.4908 | 2026-11-07, no guards |
+| t12_001 | 8 | $0.9440 | 2026-11-07, no guards; one call fell back to gemini-3.1-pro-preview ($0.27) |
+| **Total** | **136** | **$3.5043** | the 2026-11-07 run alone: 132 calls, $3.4762 |
 
 **Why it was expensive.** The cause was the run itself. No single call misbehaved; what was missing were guards on our side:
 
@@ -36,4 +40,4 @@ With the guards, the box score cost $0.028 (4 calls).
 - Run one document after any pipeline change, and check the per-call log, before running the full sample set.
 - Idempotency returns results from older pipeline versions. After a pipeline change, use a fresh data directory, or add a pipeline version to the idempotency key.
 
-**Baseline** (`0dc4383`): mean 0.923 on the sample set, with 0 hallucinations. Seven of the eight outputs predate the guards, so their cost per document is not representative yet.
+**Baseline** (`0dc4383`): mean 0.923, with 0 hallucinations across 8 documents. Seven of the eight outputs predate the guards, so their cost per document is not representative yet.
