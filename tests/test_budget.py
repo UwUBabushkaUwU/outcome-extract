@@ -8,7 +8,6 @@ import pytest
 
 from app import config, db, llm, pipeline, worker
 from app.pipeline import JobContext
-from conftest import rows_section
 
 SCHEMA = {
     "name": "units", "description": "One row per unit.",
@@ -39,8 +38,7 @@ class CountingClient:
     def _create(self, **params):
         self.requests.append(params)
         system = params["messages"][0]["content"]
-        rows_call = system in (pipeline.ROW_SYSTEM, pipeline.SHEET_ROW_SYSTEM)
-        body = {"rows": []} if rows_call else {"fields": {}}
+        body = {"rows": []} if system == pipeline.ROW_SYSTEM else {"fields": {}}
         usage = SimpleNamespace(prompt_tokens=1000, completion_tokens=200, cost=self.cost)
         choice = SimpleNamespace(message=SimpleNamespace(content=json.dumps(body)),
                                  finish_reason="stop")
@@ -88,7 +86,7 @@ def test_every_request_has_minimal_reasoning_and_a_per_type_max_tokens(tmp_path,
         assert r["model"] == llm.DEFAULT_MODEL
         assert r["extra_body"]["reasoning"] == {"effort": "minimal"}
     assert by_type[pipeline.PREP_SYSTEM] == {2000}
-    assert by_type[pipeline.SHEET_ROW_SYSTEM] == {8000}
+    assert by_type[pipeline.ROW_SYSTEM] == {8000}
     assert max(max(v) for v in by_type.values()) <= 8000
 
 
@@ -111,7 +109,8 @@ def test_wide_tables_get_fewer_records_per_chunk(tmp_path, fake_llm):
     seen = []
 
     def rows(messages):
-        seen.append(len(re.findall(r"row\d+: U\d{3}", rows_section(messages))))
+        body = messages[1]["content"].split("ROWS (")[1]
+        seen.append(len(re.findall(r"\[A\d+\] U\d{3}", body)))
         return {"rows": []}
 
     fake_llm.rows = rows

@@ -307,47 +307,6 @@ def is_heading(line: str, kind: str, columns: list[str]) -> bool:
     return 1 <= len(line.split()) <= 8 and not re.search(r"\d", line)
 
 
-_ROW_LINE = re.compile(r"^Row (\d+):")
-
-
-def columns_for(lines: list[str]) -> list[str]:
-    """Every column letter from the leftmost to the rightmost one used in these lines."""
-    used = [_col_index(c) for ln in lines if _ROW_LINE.match(ln) for c in parse_cells(ln)]
-    if not used:
-        return []
-    return [_col_letter(i) for i in range(min(used), max(used) + 1)]
-
-
-def _col_letter(n: int) -> str:
-    s = ""
-    while n:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
-    return s
-
-
-def render_compact(lines: list[str], columns: list[str]) -> list[str]:
-    """'Row 9: [H9] Rent | [I9] 25' -> 'row9: |||||||Rent | 25': one slot per column in
-    `columns` (named once, in a header line), so the n-th value is in the n-th column.
-    Empty slots are bare separators; " | " only between two values. Trailing empty slots
-    are dropped. Lines that aren't sheet rows (markers, '...') pass through unchanged."""
-    out = []
-    for ln in lines:
-        m = _ROW_LINE.match(ln)
-        if not m or not columns:
-            out.append(ln)
-            continue
-        cells = parse_cells(ln)
-        vals = [cells.get(c, "") for c in columns]
-        while vals and not vals[-1]:
-            vals.pop()
-        text = vals[0] if vals else ""
-        for prev, v in zip(vals, vals[1:]):
-            text += (" | " if prev and v else "|") + v
-        out.append(f"row{m.group(1)}: {text}")
-    return out
-
-
 def _context(columns: list[str], heads: list[str], tail: list[str]) -> list[str]:
     heads = [h for h in heads if h not in tail and h not in columns]
     out = list(columns)

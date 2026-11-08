@@ -10,7 +10,6 @@ import pytest
 from app import chunking, normalize as N, pipeline
 from app.chunking import Section, split_rows
 from app.pipeline import JobContext
-from conftest import rows_section
 
 # A T12-like sheet: section headings (no amounts) above GL lines with monthly cells.
 SHEET = Section("sheet", "S", [
@@ -216,14 +215,15 @@ def test_pipeline_uses_kinds_end_to_end(tmp_path, fake_llm):
     def extract(messages):
         user = messages[1]["content"]
         prompts.append(user)
-        body = rows_section(user)
-        heads = re.findall(r"row(\d+): \d00-000 \| (HEAD \d)", user)
+        context, body = user.split("ROWS (")
+        heads = re.findall(r"Row (\d+): \[A\d+\] \d00-000 \| \[B\d+\] (HEAD \d)",
+                           context + body)
         out = []
-        for r, gl in re.findall(r"row(\d+): (\d\d\d-1) \|", body):
+        for r, gl in re.findall(r"Row (\d+): \[A\d+\] (\d\d\d-1) \|", body):
             head_row, head = [h for h in heads if int(h[0]) < int(r)][-1]
-            out.append({"gl": [gl, f"A{r}", 1],
-                        "section": [head, f"B{head_row}", 0.9],
-                        "active": [3, f"C{r}:E{r}", 0.9]})
+            out.append({"gl": [gl, f"[A{r}] {gl}", 1],
+                        "section": [head, f"[B{head_row}] {head}", 0.9],
+                        "active": [3, f"Computed from [C{r}] to [E{r}]", 0.9]})
         return {"rows": out}
 
     fake_llm.rows = extract

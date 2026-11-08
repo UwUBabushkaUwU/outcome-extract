@@ -167,61 +167,6 @@ ROW_SYSTEM = ("You extract table records from part of a document.\n"
 Return JSON: {"rows": [{"<key>": [value, "citation", confidence], ...}, ...]} with every
 requested key in every record, or {"rows": []} if ROWS holds no records.""")
 
-# Spreadsheet row chunks: the table is sent compactly (column letters once, then one line
-# per row with the values in column order) and the model cites cell references only. The
-# citation text is built in code from the parsed sheet, so it is exact and costs no output.
-SHEET_ROW_SYSTEM = """You extract table records from part of a spreadsheet.
-The sheet is given as COLUMNS (the column letters, once) and one line per row:
-"row12: v | v | v", the cell values in column order; an empty slot is an empty cell. The
-cell reference of a value is its column letter plus its row number: the third value on
-"row12:" is in column C if COLUMNS starts at A, so it is C12.
-Rules:
-- Use only what the sheet explicitly says. If a value is not stated, return null. Never
-  guess, never fill in from typical values or outside knowledge. A null is better than a
-  plausible guess.
-- cite: cell references only, never text. Each field has a kind:
-  extracted: the one cell holding the value, e.g. "F12".
-  calculated: compute only from values in the sheet and cite every input cell, as a range
-  "C13:N13" or a list "C13, E13". For a count, cite all the cells counted over, zeros
-  included.
-  inherited: the cell of the heading above the record that the value comes from (headings
-  above this part are given in CONTEXT).
-  Empty string when the value is null.
-- confidence: your probability (0 to 1) that the value is correct.
-- Formats: number and percent as JSON numbers (no $, %, or thousands separators; parentheses
-  or a minus sign mean negative); dates in the field's date_format; boolean as true/false;
-  list as a JSON array.
-- Return one record per distinct value of the primary field that starts in ROWS. A record
-  may span several rows (e.g. a unit row followed by its charge rows): fold them into one.
-- CONTEXT (column headers, the headings above this part, and the rows just before ROWS)
-  is for reference only: never return a record that starts in CONTEXT.
-- Follow the document description to decide what is a record. Totals, subtotals, section
-  headers and summary tables are not records unless the description says so.
-Return JSON: {"rows": [{"<key>": [value, "F12", confidence], ...}, ...]} with every
-requested key in every record, or {"rows": []} if ROWS holds no records."""
-
-
-def _with_cell_citation(raw: Any, source, sheet: str) -> Any:
-    value, cite, conf = normalize.unpack(raw)
-    return [value, normalize.citation_from_refs(cite, source, sheet), conf]
-
-
-def row_prompt(schema: dict, specs: dict, keys: list[str], primary: str,
-               chunk: chunking.RowChunk) -> tuple[str, str]:
-    """(system prompt, user message) for one row chunk."""
-    head = (f"{_doc_header(schema)}\n\nPRIMARY FIELD: {primary}\n"
-            f"FIELDS:\n{_field_list(schema, specs, keys)}\n\n")
-    if chunk.sheet:
-        cols = chunking.columns_for(chunk.header + chunk.lines)
-        context = "\n".join(chunking.render_compact(chunk.header, cols)) or "(none)"
-        rows = "\n".join(chunking.render_compact(chunk.lines, cols))
-        return SHEET_ROW_SYSTEM, (
-            f"{head}SHEET: {chunk.sheet}\nCOLUMNS: {' | '.join(cols)}\n\n"
-            f"CONTEXT:\n<<<\n{context}\n>>>\n\nROWS:\n<<<\n{rows}\n>>>")
-    context = "\n".join(chunk.header) if chunk.header else "(none)"
-    return ROW_SYSTEM, (f"{head}CONTEXT (pages):\n<<<\n{context}\n>>>\n\n"
-                        f"ROWS (pages):\n<<<\n{chunk.text}\n>>>")
-
 
 def _field_list(schema: dict, specs: dict, keys: list[str]) -> str:
     items = []
@@ -359,10 +304,14 @@ def extract_document(schema, specs, keys, full_text, usage, errors) -> dict:
 def extract_rows(schema, specs, keys, primary, chunk: chunking.RowChunk, usage, errors) -> list:
     """Extract the records of one chunk. If the reply is cut off at max_tokens, split the
     chunk in half at a record boundary and extract each half, down to a single record."""
+    context = "\n".join(chunk.header) if chunk.header else "(none)"
     where = f"sheet '{chunk.sheet}'" if chunk.sheet else "pages"
-    system, user = row_prompt(schema, specs, keys, primary, chunk)
+    user = (f"{_doc_header(schema)}\n\nPRIMARY FIELD: {primary}\n"
+            f"FIELDS:\n{_field_list(schema, specs, keys)}\n\n"
+            f"CONTEXT ({where}):\n<<<\n{context}\n>>>\n\n"
+            f"ROWS ({where}):\n<<<\n{chunk.text}\n>>>")
     try:
-        out = llm.chat_json([{"role": "system", "content": system},
+        out = llm.chat_json([{"role": "system", "content": ROW_SYSTEM},
                              {"role": "user", "content": user}],
                             usage=usage, model=MODEL, max_tokens=ROWS_MAX_TOKENS,
                             allow_expensive=ALLOW_EXPENSIVE, tag=f"rows {chunk.label}")
@@ -466,8 +415,6 @@ def run(ctx: JobContext) -> PipelineOutput:
     for chunk, chunk_rows in zip(chunks, raw_rows):
         chunk_norm = normalize.norm_text("\n".join(chunk.header + chunk.lines))
         for r in (chunk_rows or []):
-            if chunk.sheet:  # cell references -> "[F12] <cell text>", built from the sheet
-                r = {k: _with_cell_citation(v, source, chunk.sheet) for k, v in r.items()}
             rows.append({k: normalize.finalize_field(r.get(k), specs[k], source, chunk.sheet,
                                                      chunk_norm) for k in row_keys})
     if primary:

@@ -7,7 +7,6 @@ import pymupdf
 
 from app import llm, pipeline
 from app.pipeline import JobContext
-from conftest import rows_section
 
 SCHEMA = {
     "name": "units", "description": "One row per unit.",
@@ -39,11 +38,13 @@ def _ctx(path, kind="csv", schema=SCHEMA):
 
 def _rows_from_prompt(messages):
     """Fake row extractor: return every unit whose line is in ROWS, citing real cells."""
-    rows_text = rows_section(messages)
+    rows_text = messages[1]["content"].split("ROWS (")[1]
     out = []
-    for m in re.finditer(r"row(\d+): (U\d{3}) \| Rent \| (\d+)", rows_text):
+    for m in re.finditer(r"Row (\d+): \[A\d+\] (U\d{3}) \| \[B\d+\] Rent \| \[C\d+\] (\d+)",
+                         rows_text):
         r, unit, rent = m.groups()
-        out.append({"unit": [unit, f"A{r}", 0.99], "rent": [int(rent), f"C{r}", 0.95]})
+        out.append({"unit": [unit, f"[A{r}] {unit}", 0.99],
+                    "rent": [int(rent), f"[C{r}] {rent}", 0.95]})
     return {"rows": out}
 
 
@@ -95,37 +96,11 @@ def test_every_call_failing_still_returns_valid_partial_result(tmp_path, fake_ll
 
 def test_hallucinated_rows_are_nulled(tmp_path, fake_llm):
     fake_llm.prep = lambda m: PREP
-    # A real cell, a wrong value: the citation text is built from the cell, so the value
-    # has to agree with it.
-    fake_llm.rows = lambda m: {"rows": [{"unit": ["U000", "A3", 1],
-                                         "rent": [99999, "C3", 0.9]}]}
+    fake_llm.rows = lambda m: {"rows": [{"unit": ["U000", "[A3] U000", 1],
+                                         "rent": [99999, "[C3] 99999", 0.9]}]}
     out = pipeline.run(_ctx(_csv(tmp_path, units=2)))
     assert out.entries[0]["unit"]["value"] == "U000"
     assert out.entries[0]["rent"]["value"] is None
-
-
-def test_sheet_rows_are_sent_compactly_and_cited_by_cell(tmp_path, fake_llm):
-    fake_llm.prep = lambda m: PREP
-    fake_llm.rows = _rows_from_prompt
-    out = pipeline.run(_ctx(_csv(tmp_path, units=3)))
-    _, msgs = next(c for c in fake_llm.calls if c[0] == "rows")
-    assert msgs[0]["content"] == pipeline.SHEET_ROW_SYSTEM
-    user = msgs[1]["content"]
-    assert "COLUMNS: A | B | C" in user and user.count("COLUMNS:") == 1
-    assert "row3: U000 | Rent | 1000" in user and "[A3]" not in user
-    # The citation text comes from the parsed sheet, not from the model.
-    assert out.entries[1]["rent"]["citation"] == "[Sheet1!C6] 1001"
-    assert out.entries[1]["rent"]["source_locations"] == ["Sheet1!C6"]
-
-
-def test_reference_one_column_off_is_corrected_within_the_row(tmp_path, fake_llm):
-    fake_llm.prep = lambda m: PREP
-    fake_llm.rows = lambda m: {"rows": [{"unit": ["U000", "B3", 1],  # B3 holds "Rent"
-                                         "rent": [1000, "B3", 0.9]}]}
-    out = pipeline.run(_ctx(_csv(tmp_path, units=2)))
-    assert out.entries[0]["unit"]["citation"] == "[Sheet1!A3] U000"
-    assert out.entries[0]["rent"]["citation"] == "[Sheet1!C3] 1000"
-    assert out.entries[0]["rent"]["confidence"] <= 0.85
 
 
 def test_no_primary_means_one_document_call_and_one_entry(tmp_path, fake_llm):
