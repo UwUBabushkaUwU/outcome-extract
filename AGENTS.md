@@ -24,7 +24,11 @@ Read ref/ASSIGNMENT.md and ref/contract/ before changing anything.
 - Null when a value isn't explicitly in the document. Never guess.
 
 ## Working rules
-- Do not commit. Do not touch files outside your assigned folders.
+- Commit your own work after each finished task, in small logical commits with clear messages (feat:, fix:, test:, build:, docs:).
+- Stage only your own files by explicit path. Never use `git add .` or `git add -A`.
+- Before every commit, run `git status` and make sure ref/, .env, data/, cache/ and any sample documents or answer files are NOT staged.
+- Never push unless asked. Never rewrite history.
+- Do not touch files outside your assigned folders.
 - Never read or print .env.
 
 ## Layout
