@@ -79,3 +79,45 @@ def test_calculated_and_inherited_by_reference():
     g = N.finalize_field(["Charge Total:", N.citation_from_refs("G10", SRC, "Willow"), 0.9],
                          inh, SRC, "Willow", chunk)
     assert g["value"] == "Charge Total:"
+
+
+def test_t12_date_range_agreement():
+    lines = ["Row 3: [A3] Period = Nov 2024-Oct 2025"]
+    src = N.Source([Section("sheet", "Report1", lines)])
+    date_spec = spec(type_="date", kind="extracted")
+
+    # Start date extracted from header date range
+    cite = N.citation_from_refs("A3", src, "Report1")
+    start = N.finalize_field(["2024-11-01", cite, 0.95], date_spec, src, "Report1")
+    assert start["value"] == "2024-11-01"
+    assert start["citation"] == "[Report1!A3] Period = Nov 2024-Oct 2025"
+
+    # End date extracted from header date range
+    end = N.finalize_field(["2025-10-31", cite, 0.95], date_spec, src, "Report1")
+    assert end["value"] == "2025-10-31"
+    assert end["citation"] == "[Report1!A3] Period = Nov 2024-Oct 2025"
+
+    # Unrelated date is rejected
+    wrong = N.finalize_field(["2023-01-01", cite, 0.95], date_spec, src, "Report1")
+    assert wrong["value"] is None
+
+
+def test_t12_inherited_section_heading_row_cells():
+    lines = [
+        "Row 82: [A82] 630-000 | [B82] UTILITIES",
+        "Row 83: [A83] 631-000 | [B83] Water & Sewer | [C83] 1000",
+    ]
+    src = N.Source([Section("sheet", "Report1", lines)])
+    inh = spec("string", kind="inherited")
+    chunk = N.norm_text("\n".join(lines))
+
+    # Model cited A82 (the GL column) instead of B82 (the title column)
+    cite_a82 = N.citation_from_refs("A82", src, "Report1")
+    f = N.finalize_field(["UTILITIES", cite_a82, 0.9], inh, src, "Report1", chunk)
+    assert f["value"] == "UTILITIES"
+    assert f["citation"] == "[Report1!B82] UTILITIES"
+
+    # Heading not in the row is rejected
+    f_wrong = N.finalize_field(["LANDSCAPING", cite_a82, 0.9], inh, src, "Report1", chunk)
+    assert f_wrong["value"] is None
+

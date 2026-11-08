@@ -123,6 +123,9 @@ def parse_number(v: Any) -> int | float | None:
 
 _MONTHS = {m: i for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_MONTHS_INV = {i: m for m, i in _MONTHS.items()}
+_MONTHS_LONG = {1: "january", 2: "february", 3: "march", 4: "april", 5: "may", 6: "june",
+                7: "july", 8: "august", 9: "september", 10: "october", 11: "november", 12: "december"}
 
 
 def _month(name: str) -> int | None:
@@ -527,7 +530,22 @@ def _agrees(value: Any, cell_text: str, spec: dict) -> bool:
         cv = parse_number(cell_text)
         return cv is not None and abs(cv - value) <= 0.005 * max(1.0, abs(cv))
     if kind == "date":
-        return parse_date(cell_text, spec["date_format"]) == value
+        if parse_date(cell_text, spec["date_format"]) == value:
+            return True
+        if isinstance(value, str):
+            m = re.match(r"^(\d{4})-(\d{2})(?:-(\d{2}))?$", value)
+            if m:
+                y, mo = int(m.group(1)), int(m.group(2))
+                t = cell_text.lower()
+                if f"{y:04d}-{mo:02d}" in t:
+                    return True
+                if 1 <= mo <= 12:
+                    m_short = _MONTHS_INV.get(mo)
+                    m_long = _MONTHS_LONG.get(mo)
+                    if (m_short and m_short in t) or (m_long and m_long in t):
+                        if str(y) in t or f"'{y % 100:02d}" in t:
+                            return True
+        return False
     if kind == "boolean":
         return parse_bool(cell_text) == value
     if kind == "string":
@@ -628,7 +646,21 @@ def finalize_field(raw: Any, spec: dict, source: Source, sheet: str | None = Non
     if check.ok and kind == "inherited" and isinstance(value, str):
         # The heading cited must actually be where the value comes from.
         if norm_text(value) not in norm_text(" ".join(check.inputs)):
-            check = Check(False)
+            # If a single cell was cited (e.g. the GL code cell of a section heading row),
+            # check if another cell in that same row holds the heading.
+            if len(check.input_cells) == 1 and check.input_cells[0] is not None:
+                sh, ref = check.input_cells[0]
+                hits = [(r, t) for r, t in _row_cells(source, sh, ref)
+                        if norm_text(value) in norm_text(t)]
+                if len(hits) == 1:
+                    r, t = hits[0]
+                    log.info("inherited heading %s!%s doesn't hold %r; %s does", sh, ref, value, r)
+                    check = Check(True, f"[{sh}!{r}] {t}", check.pages, [f"{sh}!{r}"], [t],
+                                  [(sh, r)])
+                else:
+                    check = Check(False)
+            else:
+                check = Check(False)
     if (check.ok and kind == "extracted" and not isinstance(value, list)
             and len(check.input_cells) == 1 and check.input_cells[0] is not None):
         # One cell cited: the value must say what that cell says. Citation text built from
