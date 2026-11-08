@@ -28,8 +28,20 @@ log = logging.getLogger("app.pipeline")
 
 MODEL = os.environ.get("LLM_MODEL", llm.DEFAULT_MODEL)  # flash
 VISION_MODEL = os.environ.get("LLM_VISION_MODEL", llm.DEFAULT_MODEL)
+# Pro / sonnet only when someone sets this on purpose, never by fallback.
+ALLOW_EXPENSIVE = os.environ.get("LLM_ALLOW_EXPENSIVE", "0") == "1"
 CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", 4))  # parallel calls per job
 DOC_TEXT_MAX_CHARS = int(os.environ.get("DOC_TEXT_MAX_CHARS", 150_000))
+
+# Output ceilings per call type. Hidden reasoning counts against these, so a runaway reply
+# is cut off instead of billed in full.
+PREP_MAX_TOKENS = 2000
+ROWS_MAX_TOKENS = 8000
+DOC_MAX_TOKENS = 6000
+TRANSCRIBE_MAX_TOKENS = 4000
+PREP_BATCH = 15  # fields per field-prep call, so each reply fits in PREP_MAX_TOKENS
+# Rough output tokens per field in a row record ([value, "[F12] text", 0.9] plus key).
+_TOKENS_PER_ROW_FIELD = 20
 
 
 @dataclass
@@ -53,19 +65,28 @@ class PipelineOutput:
 class _Errors:
     def __init__(self):
         self._items: list[str] = []
+        self._budget: str | None = None
         self._lock = threading.Lock()
 
     def add(self, step: str, exc: Exception) -> None:
-        log.error("step %s failed: %s", step, exc)
         with self._lock:
+            if isinstance(exc, llm.BudgetExceeded):
+                if self._budget is None:
+                    log.error("step %s stopped: %s", step, exc)
+                    self._budget = str(exc)
+                self._items.append(f"{step}: skipped, budget spent")
+                return
+            log.error("step %s failed: %s", step, exc)
             self._items.append(f"{step}: {str(exc)[:300]}")
 
     def __bool__(self) -> bool:
         return bool(self._items)
 
     def as_error(self) -> dict:
-        return {"code": "PARTIAL_EXTRACTION",
-                "message": f"{len(self._items)} step(s) failed: " + " | ".join(self._items)[:2000]}
+        detail = f"{len(self._items)} step(s) failed: " + " | ".join(self._items)
+        if self._budget:
+            return {"code": "BUDGET_EXCEEDED", "message": f"{self._budget}; {detail}"[:2000]}
+        return {"code": "PARTIAL_EXTRACTION", "message": detail[:2000]}
 
 
 # --------------------------------------------------------------------------- prompts
@@ -91,9 +112,9 @@ return an object with:
 - "default_if_absent": the value the description says to use when the thing is absent
   (0 for "0 if none", [] for "empty list if none", false for "false otherwise"); null if the
   description says null or says nothing.
-- "description": the description rewritten for an extraction model: precise about where the
-  value is, its unit, sign and format, and what not to confuse it with. Keep every
-  instruction of the original. Do not invent facts about any particular document.
+- "description": the description rewritten for an extraction model, in at most 40 words:
+  precise about where the value is, its unit, sign and format, and what not to confuse it
+  with. Keep every instruction of the original. Do not invent facts about any document.
 Return JSON: {"fields": {"<key>": {...}, ...}} with exactly the keys given."""
 
 _RULES = """Rules:
@@ -174,7 +195,9 @@ def transcribe_pages(doc, usage: Usage, errors: _Errors, pool: ThreadPoolExecuto
             ]},
         ]
         try:
-            out = llm.chat_json(messages, usage=usage, model=VISION_MODEL, max_tokens=8192)
+            out = llm.chat_json(messages, usage=usage, model=VISION_MODEL,
+                                max_tokens=TRANSCRIBE_MAX_TOKENS, allow_expensive=ALLOW_EXPENSIVE,
+                                tag=f"transcribe p{page_no}")
         except llm.LLMError as exc:
             errors.add(f"transcribe page {page_no}", exc)
             return page_no, None
@@ -202,17 +225,26 @@ def prepare_fields(schema: dict, usage: Usage, errors: _Errors) -> dict[str, dic
         if key in _prep_memo:
             return _prep_memo[key]
 
+    # Large field lists go in batches, so each reply fits in PREP_MAX_TOKENS.
     raw: dict = {}
-    try:
-        out = llm.chat_json([
-            {"role": "system", "content": PREP_SYSTEM},
-            {"role": "user", "content": f"FIELD LIST:\n{canonical}"},
-        ], usage=usage, model=MODEL)
-        raw = out.get("fields", {}) if isinstance(out, dict) else {}
-        ok = True
-    except llm.LLMError as exc:
-        errors.add("field prep", exc)
-        ok = False
+    ok = True
+    keys = list(fields)
+    header = {k: v for k, v in schema.items() if k != "fields"}
+    for start in range(0, len(keys), PREP_BATCH):
+        batch = {k: fields[k] for k in keys[start:start + PREP_BATCH]}
+        part = json.dumps({**header, "has_primary_field": has_primary, "fields": batch},
+                          sort_keys=True, ensure_ascii=False)
+        try:
+            out = llm.chat_json([
+                {"role": "system", "content": PREP_SYSTEM},
+                {"role": "user", "content": f"FIELD LIST:\n{part}"},
+            ], usage=usage, model=MODEL, max_tokens=PREP_MAX_TOKENS,
+                allow_expensive=ALLOW_EXPENSIVE, tag=f"prep {start // PREP_BATCH + 1}")
+            got = out.get("fields", {}) if isinstance(out, dict) else {}
+            raw.update(got if isinstance(got, dict) else {})
+        except llm.LLMError as exc:
+            errors.add(f"field prep batch {start // PREP_BATCH + 1}", exc)
+            ok = False
     specs = {k: normalize.clean_spec(k, f, raw.get(k), has_primary) for k, f in fields.items()}
     if ok:
         with _prep_lock:
@@ -225,7 +257,9 @@ def extract_document(schema, specs, keys, full_text, usage, errors) -> dict:
             f"DOCUMENT TEXT:\n<<<\n{full_text}\n>>>")
     try:
         out = llm.chat_json([{"role": "system", "content": DOC_SYSTEM},
-                             {"role": "user", "content": user}], usage=usage, model=MODEL)
+                             {"role": "user", "content": user}], usage=usage, model=MODEL,
+                            max_tokens=DOC_MAX_TOKENS, allow_expensive=ALLOW_EXPENSIVE,
+                            tag="document")
     except llm.LLMError as exc:
         errors.add("document fields", exc)
         return {}
@@ -243,7 +277,8 @@ def extract_rows(schema, specs, keys, primary, chunk: chunking.RowChunk, usage, 
     try:
         out = llm.chat_json([{"role": "system", "content": ROW_SYSTEM},
                              {"role": "user", "content": user}],
-                            usage=usage, model=MODEL, max_tokens=32000)
+                            usage=usage, model=MODEL, max_tokens=ROWS_MAX_TOKENS,
+                            allow_expensive=ALLOW_EXPENSIVE, tag=f"rows {chunk.index}")
     except llm.LLMError as exc:
         errors.add(f"rows chunk {chunk.index} ({where})", exc)
         return []
@@ -284,8 +319,12 @@ def run(ctx: JobContext) -> PipelineOutput:
         chunks: list[chunking.RowChunk] = []
         if row_keys:
             labels = [primary, schema["fields"][primary].get("name", "")]
+            # Few enough records per chunk that the reply fits in ROWS_MAX_TOKENS (with
+            # headroom): a wide table gets smaller chunks than a narrow one.
+            max_records = max(3, int(ROWS_MAX_TOKENS * 0.7)
+                              // (len(row_keys) * _TOKENS_PER_ROW_FIELD + 10))
             for sec in sections:
-                chunks.extend(chunking.split_rows(sec, labels))
+                chunks.extend(chunking.split_rows(sec, labels, max_records=max_records))
         row_futures = [pool.submit(extract_rows, schema, specs, row_keys, primary, c,
                                    ctx.usage, errors) for c in chunks]
         raw_doc = doc_future.result() if doc_future else {}

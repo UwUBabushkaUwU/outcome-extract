@@ -153,14 +153,19 @@ def norm_label(text: str) -> str:
 # --------------------------------------------------------------------------- row chunks
 
 
-def _group(blocks: list[list[str]], target: int) -> list[list[str]]:
-    groups, cur = [], []
+def _group(blocks: list[list[str]], target: int,
+           max_records: int | None = None) -> list[list[str]]:
+    """Pack whole blocks into groups of about `target` lines and at most `max_records`
+    blocks (records), so the model's reply for a group stays within its token limit."""
+    groups, cur, records = [], [], 0
     for block in blocks:
         for piece in (block[i:i + MAX_BLOCK_LINES] for i in range(0, len(block), MAX_BLOCK_LINES)):
-            if cur and len(cur) + len(piece) > target:
+            full = len(cur) + len(piece) > target or (max_records and records >= max_records)
+            if cur and full:
                 groups.append(cur)
-                cur = []
+                cur, records = [], 0
             cur.extend(piece)
+            records += 1
     if cur:
         groups.append(cur)
     return groups
@@ -217,8 +222,8 @@ def _page_blocks(sec: Section) -> tuple[list[list[str]], list[str]]:
     return _blocks_from_starts(lines, starts), header
 
 
-def split_rows(sec: Section, primary_labels: list[str],
-               target: int | None = None) -> list[RowChunk]:
+def split_rows(sec: Section, primary_labels: list[str], target: int | None = None,
+               max_records: int | None = None) -> list[RowChunk]:
     target = target or TARGET_LINES
     if not sec.lines:
         return []
@@ -228,7 +233,7 @@ def split_rows(sec: Section, primary_labels: list[str],
         blocks, header = _page_blocks(sec)
 
     chunks, page, prev = [], None, []
-    for i, group in enumerate(_group(blocks, target)):
+    for i, group in enumerate(_group(blocks, target, max_records)):
         body = list(group)
         if sec.kind == "pages" and page and not PAGE_MARKER.match(body[0]):
             body.insert(0, page)  # so the chunk knows which page it starts on

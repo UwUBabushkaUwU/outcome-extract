@@ -4,6 +4,15 @@ from app import config, db, llm, pipeline
 
 
 @pytest.fixture(autouse=True)
+def no_live_llm(monkeypatch):
+    """No test may reach a real gateway, even with LLM_* set in the shell. Tests that need
+    a client install a fake one over this."""
+    def refuse():
+        raise AssertionError("live LLM call attempted in a test")
+    monkeypatch.setattr(llm, "_get_client", refuse)
+
+
+@pytest.fixture(autouse=True)
 def isolated_dirs(tmp_path, monkeypatch):
     """Every test gets its own DB, file store and LLM cache."""
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "data")
@@ -23,6 +32,7 @@ class FakeLLM:
 
     def __init__(self):
         self.calls = []
+        self.kwargs = []
         self.prep = lambda msgs: {"fields": {}}
         self.doc = lambda msgs: {"fields": {}}
         self.rows = lambda msgs: {"rows": []}
@@ -33,6 +43,7 @@ class FakeLLM:
         kind = {pipeline.PREP_SYSTEM: "prep", pipeline.DOC_SYSTEM: "doc",
                 pipeline.ROW_SYSTEM: "rows", pipeline.TRANSCRIBE_SYSTEM: "transcribe"}[system]
         self.calls.append((kind, messages))
+        self.kwargs.append((kind, {"model": model, **kw}))
         usage.record(model, 10, 5, 0.0001)
         out = getattr(self, kind)(messages)
         if isinstance(out, Exception):
