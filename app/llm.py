@@ -10,8 +10,8 @@
 * At most LLM_MAX_ATTEMPTS (4) HTTP attempts per chat_json call, fallback included. Retries
   429/5xx/timeouts with backoff and jitter, honouring Retry-After. A truncated reply
   (finish_reason=length) is not retried: the same request would be truncated again.
-* Per-job budget (Usage): at most MAX_JOB_LLM_CALLS (150) HTTP calls and MAX_JOB_COST_USD
-  ($0.50). Checked before every request; when spent, BudgetExceeded is raised and no
+* Per-job budget (Usage): at most MAX_JOB_LLM_CALLS (300) HTTP calls and MAX_JOB_COST_USD
+  ($1.50). Checked before every request; when spent, BudgetExceeded is raised and no
   request goes out. Cache hits cost nothing and don't count.
 * Every call is logged at INFO: model, cache hit/miss, tokens in/out (and reasoning), cost.
 * Successful replies are cached on disk in CACHE_DIR, keyed by sha256 of the full request.
@@ -54,8 +54,8 @@ MAX_ATTEMPTS = int(os.environ.get("LLM_MAX_ATTEMPTS", 4))  # per chat_json call,
 DEFAULT_MAX_TOKENS = 2048
 MAX_TOKENS_CAP = int(os.environ.get("LLM_MAX_TOKENS_CAP", 8192))
 REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "minimal")  # "off" = don't send
-MAX_JOB_COST_USD = float(os.environ.get("MAX_JOB_COST_USD", 0.50))
-MAX_JOB_LLM_CALLS = int(os.environ.get("MAX_JOB_LLM_CALLS", 150))
+MAX_JOB_COST_USD = float(os.environ.get("MAX_JOB_COST_USD", 1.50))
+MAX_JOB_LLM_CALLS = int(os.environ.get("MAX_JOB_LLM_CALLS", 300))
 BACKOFF_BASE = float(os.environ.get("LLM_BACKOFF_BASE", 1.0))
 BACKOFF_CAP = float(os.environ.get("LLM_BACKOFF_CAP", 30.0))
 RETRY_AFTER_CAP = float(os.environ.get("LLM_RETRY_AFTER_CAP", 120.0))

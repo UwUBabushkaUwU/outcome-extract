@@ -1,6 +1,7 @@
 """Spend guards at pipeline and worker level, with the real llm.chat_json on a mocked client."""
 
 import json
+import logging
 import re
 from types import SimpleNamespace
 
@@ -59,11 +60,15 @@ def _ctx(path, usage):
                       usage=usage)
 
 
-def test_cost_cap_stops_the_job_with_partial(tmp_path, client):
+def test_cost_cap_stops_the_job_with_partial(tmp_path, client, caplog):
     path = _csv(tmp_path / "rr.csv", units=400)  # ~800 lines -> many row chunks
-    out = pipeline.run(_ctx(path, llm.Usage(max_cost_usd=0.05)))
+    with caplog.at_level(logging.WARNING):
+        out = pipeline.run(_ctx(path, llm.Usage(max_cost_usd=0.05)))
     assert out.status == "PARTIAL"
     assert out.error["code"] == "BUDGET_EXCEEDED"
+    assert re.search(r"\d+ chunk\(s\) skipped", out.error["message"])
+    assert any("skipped: budget cap reached" in r.message for r in caplog.records)
+    assert any("budget cap hit" in r.message and "chunk(s) skipped" in r.message for r in caplog.records)
     # $0.05 at $0.01 per call: 5 calls, plus at most the ones already in flight.
     assert len(client.requests) <= 5 + pipeline.CONCURRENCY
     assert len(out.entries) >= 1 and set(out.entries[0]) == set(SCHEMA["fields"])
@@ -75,6 +80,7 @@ def test_call_cap_stops_the_job_with_partial(tmp_path, client):
     out = pipeline.run(_ctx(path, llm.Usage(max_calls=6)))
     assert out.status == "PARTIAL" and out.error["code"] == "BUDGET_EXCEEDED"
     assert len(client.requests) == 6
+    assert re.search(r"\d+ chunk\(s\) skipped", out.error["message"])
 
 
 def test_every_request_has_minimal_reasoning_and_a_per_type_max_tokens(tmp_path, client):
@@ -186,3 +192,19 @@ def test_old_database_is_migrated(tmp_path, monkeypatch):
     job, _ = db.create_job(org_id="", idem_key="k", filename="a", file_path="f", file_type="csv",
                            schema={"fields": {"a": {}}}, webhook_url=None)
     assert job["llm_calls"] == 0 and job["llm_cost_usd"] == 0
+
+
+def test_errors_tracks_and_reports_skipped_chunks(caplog):
+    errors = pipeline._Errors(job_id="test1234")
+    with caplog.at_level(logging.WARNING):
+        errors.add("rows chunk 1", llm.BudgetExceeded("job cost cap reached ($1.50 of $1.50)"))
+        errors.add("rows chunk 2", llm.BudgetExceeded("job cost cap reached ($1.50 of $1.50)"))
+        errors.add("rows chunk 3", llm.BudgetExceeded("job cost cap reached ($1.50 of $1.50)"))
+
+    assert errors.skipped == ["rows chunk 1", "rows chunk 2", "rows chunk 3"]
+    err = errors.as_error()
+    assert err["code"] == "BUDGET_EXCEEDED"
+    assert "3 chunk(s) skipped: rows chunk 1, rows chunk 2, rows chunk 3" in err["message"]
+    assert any("rows chunk 1' skipped: budget cap reached" in r.message for r in caplog.records)
+    assert any("rows chunk 2' skipped: budget cap reached" in r.message for r in caplog.records)
+    assert any("rows chunk 3' skipped: budget cap reached" in r.message for r in caplog.records)

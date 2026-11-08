@@ -38,8 +38,8 @@ python -m app
 | Variable | Default | Meaning |
 |---|---|---|
 | `WORKERS` | 4 | worker processes |
-| `MAX_JOB_COST_USD` | 0.50 | per-job spend cap; when reached, the job ends `PARTIAL` with `BUDGET_EXCEEDED` |
-| `MAX_JOB_LLM_CALLS` | 150 | per-job request cap |
+| `MAX_JOB_COST_USD` | 1.50 | per-job spend cap; when reached, the job ends `PARTIAL` with `BUDGET_EXCEEDED` |
+| `MAX_JOB_LLM_CALLS` | 300 | per-job request cap |
 | `LLM_FALLBACK_MODELS` | `anthropic/claude-haiku-5.5` | cheap fallback models only |
 | `LLM_ALLOW_EXPENSIVE` | 0 | set to 1 to allow gemini-3.1-pro-preview or claude-sonnet-5.5 as `LLM_MODEL` |
 

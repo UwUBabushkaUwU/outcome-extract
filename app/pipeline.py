@@ -65,7 +65,8 @@ class PipelineOutput:
 class _Errors:
     def __init__(self, job_id: str | None = None):
         self.job_id = job_id
-        self._items: list[str] = []
+        self._failed: list[str] = []
+        self._skipped: list[str] = []
         self._budget: str | None = None
         self._lock = threading.Lock()
 
@@ -74,21 +75,35 @@ class _Errors:
         with self._lock:
             if isinstance(exc, llm.BudgetExceeded):
                 if self._budget is None:
-                    log.error("%sstep %s stopped: %s", prefix, step, exc)
+                    log.warning("%sstep %s budget cap hit: %s", prefix, step, exc)
                     self._budget = str(exc)
-                self._items.append(f"{step}: skipped, budget spent")
+                log.warning("%sstep '%s' skipped: budget cap reached (%s)", prefix, step, exc)
+                self._skipped.append(step)
                 return
             log.error("%sstep %s failed: %s", prefix, step, exc)
-            self._items.append(f"{step}: {str(exc)[:300]}")
+            self._failed.append(f"{step}: {str(exc)[:300]}")
 
     def __bool__(self) -> bool:
-        return bool(self._items)
+        with self._lock:
+            return bool(self._failed or self._skipped)
+
+    @property
+    def skipped(self) -> list[str]:
+        with self._lock:
+            return list(self._skipped)
 
     def as_error(self) -> dict:
-        detail = f"{len(self._items)} step(s) failed: " + " | ".join(self._items)
-        if self._budget:
-            return {"code": "BUDGET_EXCEEDED", "message": f"{self._budget}; {detail}"[:2000]}
-        return {"code": "PARTIAL_EXTRACTION", "message": detail[:2000]}
+        with self._lock:
+            if self._budget:
+                parts = [self._budget]
+                if self._skipped:
+                    parts.append(f"{len(self._skipped)} chunk(s) skipped: " + ", ".join(self._skipped))
+                if self._failed:
+                    parts.append(f"{len(self._failed)} step(s) failed: " + " | ".join(self._failed))
+                message = "; ".join(parts)[:2000]
+                return {"code": "BUDGET_EXCEEDED", "message": message}
+            detail = f"{len(self._failed)} step(s) failed: " + " | ".join(self._failed)
+            return {"code": "PARTIAL_EXTRACTION", "message": detail[:2000]}
 
 
 # --------------------------------------------------------------------------- prompts
@@ -426,6 +441,9 @@ def run(ctx: JobContext) -> PipelineOutput:
 
     if errors:
         err = errors.as_error()
+        if errors.skipped:
+            log.warning("job=%s budget cap hit; %d chunk(s) skipped: %s",
+                        ctx.job_id, len(errors.skipped), ", ".join(errors.skipped))
         log.warning("job=%s PARTIAL: [%s] %s", ctx.job_id, err["code"], err["message"])
         return PipelineOutput("PARTIAL", entries, err)
     if primary and row_keys and not rows:

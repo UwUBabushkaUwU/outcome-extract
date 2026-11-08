@@ -62,7 +62,7 @@ Three things made that run expensive:
 
 The guards added afterwards (commits `42e5620`, `a8c57d0`):
 - **Calls:** cheap-only fallback, minimal reasoning, per-call-type `max_tokens`, and at most 4 requests per call. A truncated reply is not retried.
-- **Per job:** at most 150 requests and $0.50 (`MAX_JOB_COST_USD`), checked before every request. Past either cap the job ends PARTIAL with `BUDGET_EXCEEDED`. The caps hold across restarts.
+- **Per job:** at most 300 requests and $1.50 (`MAX_JOB_COST_USD`), checked before every request. Past either cap the job ends PARTIAL with `BUDGET_EXCEEDED`. The caps hold across restarts.
 - **Logging:** every call is logged with model, cache hit or miss, tokens and cost.
 - **Cache:** replies are cached on disk, so re-runs are free.
 

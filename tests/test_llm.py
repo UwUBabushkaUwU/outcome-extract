@@ -206,9 +206,12 @@ def test_job_call_cap_counts_retries(fake):
 
 
 def test_cost_cap_defaults_from_env(monkeypatch):
+    assert llm.Usage().max_cost_usd == 1.50
+    assert llm.Usage().max_calls == 300
     monkeypatch.setattr(llm, "MAX_JOB_COST_USD", 0.25)
+    monkeypatch.setattr(llm, "MAX_JOB_LLM_CALLS", 100)
     assert llm.Usage().max_cost_usd == 0.25
-    assert llm.Usage().max_calls == 150
+    assert llm.Usage().max_calls == 100
 
 
 def test_spend_callback_sees_running_total(fake):
