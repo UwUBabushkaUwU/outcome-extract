@@ -52,7 +52,7 @@
       },
       "submarket": {
         "value": "Fairhaven International Airport",
-        "citation": "[Page 18] Property is located in Harlan County in the Fairhaven International Airport submarket.",
+        "citation": "[Page 18] [13] Property is located in Harlan County in the Fairhaven International Airport submarket.",
         "confidence": 0.95,
         "page_numbers": [
           18
@@ -76,10 +76,10 @@
       },
       "year_built": {
         "value": 2022,
-        "citation": "[Page 3] Year Built 2022",
+        "citation": "[Page 2] Year Completed 2022",
         "confidence": 1.0,
         "page_numbers": [
-          3
+          2
         ]
       },
       "year_renovated": {
@@ -200,16 +200,16 @@
       },
       "unit_types": {
         "value": [
-          "Aspen | 1 Bed 1 Bath",
-          "Birch | 1 Bed 1 Bath",
-          "Cedar w/ Attached Garage | 2 Bed 2 Bath",
-          "Dogwood w/ Attached Garage (2) | 2 Bed 2 Bath",
-          "Elm | 2 Bed 2 Bath",
-          "Fir w/ Attached Garage | 2 Bed 2 Bath",
-          "Hazel w/ Attached Garage | 3 Bed 2 Bath",
-          "Ironwood | 3 Bed 2 Bath"
+          "Aspen",
+          "Birch",
+          "Cedar w/ Attached Garage",
+          "Dogwood w/ Attached Garage (2)",
+          "Elm",
+          "Fir w/ Attached Garage",
+          "Hazel w/ Attached Garage",
+          "Ironwood"
         ],
-        "citation": "[Page 13] Aspen ... 1 Bed 1 Bath ... Birch ... 1 Bed 1 Bath ... Cedar w/ Attached Garage ... 2 Bed 2 Bath ... Ironwood ... 3 Bed 2 Bath",
+        "citation": "[Page 13] Aspen ... 1 Bed 1 Bath ... Birch ... 1 Bed 1 Bath ... Cedar w/ Attached Garage ... 2 Bed 2 Bath ... Dogwood w/ Attached Garage (2) ... 2 Bed 2 Bath ... Elm ... 2 Bed 2 Bath ... Fir w/ Attached Garage ... 2 Bed 2 Bath ... Hazel w/ Attached Garage ... 3 Bed 2 Bath ... Ironwood ... 3 Bed 2 Bath",
         "confidence": 0.95,
         "page_numbers": [
           13
@@ -222,7 +222,7 @@
       },
       "noi_proforma": {
         "value": 3521352,
-        "citation": "[Page 14] Net Operating Income $3,521,352 $18,731",
+        "citation": "[Page 14] Net Operating Income $3,521,352",
         "confidence": 1.0,
         "page_numbers": [
           14
@@ -231,19 +231,19 @@
     }
   ],
   "metadata": {
-    "model_calls": 3,
-    "tokens_in": 15234,
-    "tokens_out": 7423,
-    "cost_usd": 0.039262,
+    "model_calls": 4,
+    "tokens_in": 16350,
+    "tokens_out": 4315,
+    "cost_usd": 0.028444,
     "models": {
       "google/gemini-3.8-flash": {
-        "calls": 3,
-        "tokens_in": 15234,
-        "tokens_out": 7423,
-        "cost_usd": 0.039262
+        "calls": 4,
+        "tokens_in": 16350,
+        "tokens_out": 4315,
+        "cost_usd": 0.028444
       }
     },
     "cache_hits": 0,
-    "latency_ms": 49954
+    "latency_ms": 34965
   }
 }

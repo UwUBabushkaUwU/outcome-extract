@@ -4,7 +4,7 @@
     {
       "tenant_name": {
         "value": "KESTREL ANALYTICS USA LLC",
-        "citation": "[Page 4] KESTREL ANALYTICS USA LLC, a Delaware limited liability company (\"Tenant\")",
+        "citation": "[Page 4] KESTREL ANALYTICS USA LLC, a Delaware limited liability company (\"Tenant\").",
         "confidence": 1.0,
         "page_numbers": [
           4
@@ -20,7 +20,7 @@
       },
       "property_name": {
         "value": "ONE HARLOW PLACE",
-        "citation": "[Page 4] commonly known as ONE HARLOW PLACE, 850 N. HARLOW AVENUE, Naperville, Illinois 60540",
+        "citation": "[Page 4] commonly known as ONE HARLOW PLACE",
         "confidence": 0.95,
         "page_numbers": [
           4
@@ -28,7 +28,7 @@
       },
       "building_address": {
         "value": "850 N. HARLOW AVENUE, Naperville, Illinois 60540",
-        "citation": "[Page 4] commonly known as ONE HARLOW PLACE, 850 N. HARLOW AVENUE, Naperville, Illinois 60540",
+        "citation": "[Page 4] 850 N. HARLOW AVENUE, Naperville, Illinois 60540",
         "confidence": 1.0,
         "page_numbers": [
           4
@@ -36,7 +36,7 @@
       },
       "premises": {
         "value": "Suite 310",
-        "citation": "[Page 4] known as Suite 310 in the building",
+        "citation": "[Page 4] known as Suite 310",
         "confidence": 1.0,
         "page_numbers": [
           4
@@ -53,7 +53,7 @@
       "pro_rata_share": {
         "value": null,
         "citation": "",
-        "confidence": 1.0
+        "confidence": 0.9
       },
       "permitted_use": {
         "value": "general office purposes and no other purpose",
@@ -81,7 +81,7 @@
       },
       "rent_commencement_date": {
         "value": "2025-10-01",
-        "citation": "[Page 4] commencing on the 1st day of October, 2025",
+        "citation": "[Page 4] commencing on the 1st day of October, 2025 ... [Page 4] October 1, 2025 through April 30, 2027 $2,845.00",
         "confidence": 0.95,
         "page_numbers": [
           4
@@ -97,7 +97,7 @@
       },
       "lease_term_months": {
         "value": 19,
-        "citation": "[Page 4] for the term of one (1) year and seven (7) months",
+        "citation": "[Page 4] for the term of one (1) year and seven (7) months, commencing on the 1st day of October, 2025 and terminating on the 30th day of April, 2027",
         "confidence": 1.0,
         "page_numbers": [
           4
@@ -137,7 +137,7 @@
         "value": [
           18.53
         ],
-        "citation": "[Page 4] approximately 1,842 rentable square feet ... October 1, 2025 through April 30, 2027 $2,845.00",
+        "citation": "[Page 4] October 1, 2025 through April 30, 2027 $2,845.00 ... [Page 4] comprised of approximately 1,842 rentable square feet",
         "confidence": 0.95,
         "page_numbers": [
           4
@@ -145,7 +145,7 @@
       },
       "total_base_rent": {
         "value": 54055,
-        "citation": "[Page 4] for the term of one (1) year and seven (7) months ... October 1, 2025 through April 30, 2027 $2,845.00",
+        "citation": "[Page 4] October 1, 2025 through April 30, 2027 $2,845.00 ... [Page 4] for the term of one (1) year and seven (7) months",
         "confidence": 0.9,
         "page_numbers": [
           4
@@ -166,7 +166,7 @@
       },
       "security_deposit_amount": {
         "value": 2850,
-        "citation": "[Page 17] Tenant has deposited with 850 N. HARLOW AVENUE LLC the sum of Two Thousand Eight Hundred Fifty and 00/100 Dollars ($2,850.00)",
+        "citation": "[Page 17] sum of Two Thousand Eight Hundred Fifty and 00/100 Dollars ($2,850.00)",
         "confidence": 1.0,
         "page_numbers": [
           17
@@ -174,8 +174,8 @@
       },
       "letter_of_credit_required": {
         "value": false,
-        "citation": "[Page 17] Tenant has deposited with 850 N. HARLOW AVENUE LLC the sum of Two Thousand Eight Hundred Fifty and 00/100 Dollars ($2,850.00)",
-        "confidence": 0.95,
+        "citation": "[Page 17] SECURITY DEPOSIT. Tenant has deposited with 850 N. HARLOW AVENUE LLC the sum of Two Thousand Eight Hundred Fifty and 00/100 Dollars ($2,850.00)",
+        "confidence": 1.0,
         "page_numbers": [
           17
         ]
@@ -183,7 +183,7 @@
       "expense_structure": {
         "value": null,
         "citation": "",
-        "confidence": 0.9
+        "confidence": 0.85
       },
       "base_year_expenses": {
         "value": null,
@@ -196,9 +196,9 @@
         "confidence": 1.0
       },
       "electricity_provision": {
-        "value": "separately metered",
-        "citation": "[Page 5] Electricity for all receptacles on the Premises and for all lighting on the Premises and DDC boxes for ventilation and secondary heating shall be separately metered",
-        "confidence": 0.95,
+        "value": "separately metered and billed directly to, and be the sole responsibility of, Tenant by Commonwealth Edison",
+        "citation": "[Page 5] Electricity for all receptacles on the Premises and for all lighting on the Premises and DDC boxes for ventilation and secondary heating shall be separately metered and billed directly to, and be the sole responsibility of, Tenant by Commonwealth Edison.",
+        "confidence": 1.0,
         "page_numbers": [
           5
         ]
@@ -220,18 +220,18 @@
       },
       "renewal_option_exists": {
         "value": false,
-        "citation": "[Page 4] for the term of one (1) year and seven (7) months, commencing on the 1st day of October, 2025 and terminating on the 30th day of April, 2027",
-        "confidence": 1.0,
+        "citation": "[Page 15] excluding any negotiations to extend or renew this Lease.",
+        "confidence": 0.95,
         "page_numbers": [
-          4
+          15
         ]
       },
       "renewal_options_count": {
-        "value": 0,
-        "citation": "[Page 4] for the term of one (1) year and seven (7) months, commencing on the 1st day of October, 2025 and terminating on the 30th day of April, 2027",
-        "confidence": 1.0,
+        "value": 1,
+        "citation": "[Page 15] excluding any negotiations to extend or renew this Lease.",
+        "confidence": 0.9,
         "page_numbers": [
-          4
+          15
         ]
       },
       "renewal_term_months": {
@@ -246,8 +246,8 @@
       },
       "early_termination_right": {
         "value": false,
-        "citation": "[Page 4] terminating on the 30th day of April, 2027 (the \"Term\"), both dates inclusive, unless sooner terminated as provided herein.",
-        "confidence": 1.0,
+        "citation": "[Page 4] for the term of one (1) year and seven (7) months, commencing on the 1st day of October, 2025 and terminating on the 30th day of April, 2027 (the \"Term\"), both dates inclusive, unless sooner terminated as provided herein.",
+        "confidence": 0.95,
         "page_numbers": [
           4
         ]
@@ -258,7 +258,7 @@
         "confidence": 1.0
       },
       "right_to_sublet": {
-        "value": "with landlord consent, not unreasonably withheld",
+        "value": "with prior written consent of Landlord, not unreasonably withheld",
         "citation": "[Page 11] Tenant shall not, without the prior written consent of Landlord ... Landlord agrees not to unreasonably withhold its consent to any proposed assignment or subletting",
         "confidence": 0.95,
         "page_numbers": [
@@ -274,23 +274,23 @@
         "value": [
           "PINNACLE REALTY"
         ],
-        "citation": "[Page 18] Tenant has dealt with (and only with) PINNACLE REALTY, as broker, in connection with this Lease",
+        "citation": "[Page 18] Tenant has dealt with (and only with) PINNACLE REALTY, as broker",
         "confidence": 1.0,
         "page_numbers": [
           18
         ]
       },
       "late_fee": {
-        "value": "$150.00 late charge and interest at 4% in excess of the Corporate base rate by FIRST MERIDIAN",
-        "citation": "[Page 15] subject to a One Hundred Fifty and 00/100 Dollars ($150.00) late charge and shall bear interest until paid at the annual rate of four (4%) percent in excess of the Corporate base rate then announced from time to time by FIRST MERIDIAN",
-        "confidence": 0.95,
+        "value": "$150.00 late charge and interest at the annual rate of 4% in excess of the Corporate base rate announced by FIRST MERIDIAN",
+        "citation": "[Page 15] One Hundred Fifty and 00/100 Dollars ($150.00) late charge and shall bear interest until paid at the annual rate of four (4%) percent in excess of the Corporate base rate then announced from time to time by FIRST MERIDIAN",
+        "confidence": 1.0,
         "page_numbers": [
           15
         ]
       },
       "holdover_rent": {
         "value": "double the Base Rent set forth in Paragraph 1 hereof and any appropriate Additional Rent then applicable",
-        "citation": "[Page 12] Tenant shall pay to Landlord double the Base Rent set forth in Paragraph 1 hereof and any appropriate Additional Rent then applicable",
+        "citation": "[Page 12] double the Base Rent set forth in Paragraph 1 hereof and any appropriate Additional Rent then applicable (the “Holdover Rate”)",
         "confidence": 1.0,
         "page_numbers": [
           12
@@ -299,19 +299,19 @@
     }
   ],
   "metadata": {
-    "model_calls": 2,
-    "tokens_in": 20383,
-    "tokens_out": 22325,
-    "cost_usd": 0.099006,
+    "model_calls": 4,
+    "tokens_in": 22027,
+    "tokens_out": 6444,
+    "cost_usd": 0.040685,
     "models": {
       "google/gemini-3.8-flash": {
-        "calls": 2,
-        "tokens_in": 20383,
-        "tokens_out": 22325,
-        "cost_usd": 0.099006
+        "calls": 4,
+        "tokens_in": 22027,
+        "tokens_out": 6444,
+        "cost_usd": 0.040685
       }
     },
     "cache_hits": 0,
-    "latency_ms": 137566
+    "latency_ms": 41370
   }
 }
