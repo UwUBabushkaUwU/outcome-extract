@@ -107,8 +107,16 @@ return an object with:
 - "scope": "document" if the value is the same for the whole document (header values,
   anything described as "same for every row"), "row" if it differs per table row. If the
   field list has no primary field, every field is "document". The primary field is "row".
-- "computed": true if the description asks to compute, derive, count or sum the value
-  rather than read it.
+- "kind": how the value relates to the document.
+  "extracted": printed in the document and read as is.
+  "calculated": computed, counted, summed, classified or otherwise derived from other
+  values (including choosing a category from a fixed list).
+  "inherited": copied from a heading or header above the record, e.g. the section a line
+  sits under. The primary field is always "extracted".
+- "calc": for "calculated" fields, the operation: "count_nonzero" (how many of the inputs
+  are non-zero), "count" (how many inputs), "sum", "difference" (first minus second),
+  "months_between" (whole months from a start date to an end date), or "other" (anything
+  else, e.g. a classification or a schedule total). For other kinds use "other".
 - "default_if_absent": the value the description says to use when the thing is absent
   (0 for "0 if none", [] for "empty list if none", false for "false otherwise"); null if the
   description says null or says nothing.
@@ -121,12 +129,19 @@ _RULES = """Rules:
 - Use only what the document explicitly says. If a value is not stated, return null. Never
   guess, never fill in from typical values or outside knowledge. A null is better than a
   plausible guess.
-- A field marked computed may be calculated, but only from values stated in the document;
-  cite those values.
 - citation: a short verbatim copy (under 150 characters) of the document text that holds
   the value, starting with its location tag exactly as it appears in the text: "[Page 3]
   Base Rent: $4,250.00" for pages, {cell_hint}. Several sources: join them with " ... ".
-  Empty string when the value is null.
+  Empty string when the value is null. Never describe the source in your own words
+  ("computed from ...", "see above"): quote it, or name its cells.
+- Each field has a kind:
+  extracted: cite the text that holds the value.
+  calculated: compute only from values stated in the document, and cite every input you
+  used, each with its location tag, joined by " ... ". A run of spreadsheet cells may be
+  cited as a range, e.g. "[C13:N13]". For a count, cite all the cells you counted over,
+  zeros included. For a date span, cite both dates.
+  inherited: the value comes from a heading above the record (e.g. its section); cite that
+  heading verbatim with its location tag. Headings above this part are given in CONTEXT.
 - confidence: your probability (0 to 1) that the value is correct.
 - Formats: number and percent as JSON numbers (no $, %, or thousands separators; parentheses
   or a minus sign mean negative); dates in the field's date_format; boolean as true/false;
@@ -143,8 +158,8 @@ ROW_SYSTEM = ("You extract table records from part of a document.\n"
               + """
 - Return one record per distinct value of the primary field that starts in ROWS. A record
   may span several lines (e.g. a unit line followed by its charge lines): fold them into one.
-- CONTEXT (column headers and the lines just before ROWS) is for reference only: never
-  return a record that starts in CONTEXT.
+- CONTEXT (column headers, the headings above this part, and the lines just before ROWS)
+  is for reference only: never return a record that starts in CONTEXT.
 - Follow the document description to decide what is a record. Totals, subtotals, section
   headers and summary tables are not records unless the description says so.
 Return JSON: {"rows": [{"<key>": [value, "citation", confidence], ...}, ...]} with every
@@ -161,8 +176,9 @@ def _field_list(schema: dict, specs: dict, keys: list[str]) -> str:
             item["item_type"] = s["item_type"]
         if s["type"] == "date" or s.get("item_type") == "date":
             item["date_format"] = s["date_format"]
-        if s["computed"]:
-            item["computed"] = True
+        item["kind"] = s.get("kind", "extracted")
+        if item["kind"] == "calculated":
+            item["calc"] = s.get("calc", "other")
         if schema["fields"][k].get("primary"):
             item["primary"] = True
         items.append(item)

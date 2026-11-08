@@ -25,6 +25,7 @@ from app.parsers.base import Document
 TARGET_LINES = int(os.environ.get("ROW_CHUNK_LINES", 60))
 HEADER_MAX_LINES = 15
 CONTEXT_TAIL_LINES = 8
+SECTION_HEADS = 3  # nearest heading lines above a chunk, carried as context
 # A record larger than this is split anyway, so a mis-detected key column can't produce
 # a single giant chunk.
 MAX_BLOCK_LINES = TARGET_LINES * 4
@@ -56,6 +57,7 @@ class RowChunk:
     starts: list[int] = field(default_factory=lambda: [0])  # where each record begins
     label: str = ""
     columns: list[str] = field(default_factory=list)  # the section's column-header lines
+    heads: list[str] = field(default_factory=list)  # headings in force where the chunk starts
 
     def __post_init__(self):
         self.label = self.label or str(self.index)
@@ -87,11 +89,14 @@ class RowChunk:
             offset += 1
         tail = [ln for ln in first_lines[-CONTEXT_TAIL_LINES:]
                 if ln not in self.columns and not PAGE_MARKER.match(ln)]
+        kind = self.section.kind
+        heads = (self.heads + [ln for ln in first_lines
+                               if is_heading(ln, kind, self.columns)])[-SECTION_HEADS:]
         first = RowChunk(self.section, self.header, first_lines, self.index,
-                         self.starts[:k], f"{self.label}.1", self.columns)
-        second = RowChunk(self.section, self.columns + (["..."] + tail if tail else []),
-                          second_lines, self.index, [s + offset for s in self.starts[k:]],
-                          f"{self.label}.2", self.columns)
+                         self.starts[:k], f"{self.label}.1", self.columns, self.heads)
+        second = RowChunk(self.section, _context(self.columns, heads, tail), second_lines,
+                          self.index, [s + offset for s in self.starts[k:]],
+                          f"{self.label}.2", self.columns, heads)
         return first, second
 
 
@@ -267,7 +272,7 @@ def split_rows(sec: Section, primary_labels: list[str], target: int | None = Non
     else:
         blocks, header = _page_blocks(sec)
 
-    chunks, page, prev = [], None, []
+    chunks, page, prev, seen_heads = [], None, [], []
     for i, (group, starts) in enumerate(_group(blocks, target, max_records)):
         body = list(group)
         if sec.kind == "pages" and page and not PAGE_MARKER.match(body[0]):
@@ -276,13 +281,37 @@ def split_rows(sec: Section, primary_labels: list[str], target: int | None = Non
         for ln in group:
             if PAGE_MARKER.match(ln):
                 page = ln
+        heads = seen_heads[-SECTION_HEADS:]
         context: list[str] = []
         if i > 0:
-            # Column headers, plus the lines just before this chunk so that values like
-            # "the nearest section header above the line" can still be read.
+            # Column headers, the headings in force above this chunk, and the lines just
+            # before it, so values inherited from a heading above a record can be read.
             tail = [ln for ln in prev[-CONTEXT_TAIL_LINES:] if ln not in header]
-            context = header + (["..."] + tail if tail else [])
+            context = _context(header, heads, tail)
         chunks.append(RowChunk(sec, context, body, index=len(chunks), starts=starts,
-                               columns=header))
+                               columns=header, heads=heads))
+        seen_heads += [ln for ln in group if is_heading(ln, sec.kind, header)]
         prev = group
     return chunks
+
+
+def is_heading(line: str, kind: str, columns: list[str]) -> bool:
+    """A line that looks like a section heading rather than data: text only, no amounts.
+    Sheets: one to three cells, none of them a number. Pages: a few words, no digits."""
+    if line in columns or PAGE_MARKER.match(line):
+        return False
+    if kind == "sheet":
+        cells = parse_cells(line)
+        return (1 <= len(cells) <= 3 and not any(_is_number(v) for v in cells.values())
+                and any(re.search(r"[A-Za-z]{3}", v) for v in cells.values()))
+    return 1 <= len(line.split()) <= 8 and not re.search(r"\d", line)
+
+
+def _context(columns: list[str], heads: list[str], tail: list[str]) -> list[str]:
+    heads = [h for h in heads if h not in tail and h not in columns]
+    out = list(columns)
+    if heads:
+        out += ["(headings above this part:)"] + heads
+    if tail:
+        out += ["..."] + tail
+    return out
