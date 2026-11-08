@@ -1,0 +1,249 @@
+{
+  "schema": "offering_memorandum",
+  "entries": [
+    {
+      "property_name": {
+        "value": "Marlowe Park Modern Apartments",
+        "citation": "[Page 3] Property Name Marlowe Park Modern Apartments",
+        "confidence": 1.0,
+        "page_numbers": [
+          3
+        ]
+      },
+      "address": {
+        "value": "7420 E 52nd Ave.",
+        "citation": "[Page 2] Address 7420 E 52nd Ave. Fairhaven, CO 80271",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "city": {
+        "value": "Fairhaven",
+        "citation": "[Page 2] Address 7420 E 52nd Ave. Fairhaven, CO 80271",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "state": {
+        "value": "CO",
+        "citation": "[Page 2] Address 7420 E 52nd Ave. Fairhaven, CO 80271",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "zip_code": {
+        "value": "80271",
+        "citation": "[Page 2] Address 7420 E 52nd Ave. Fairhaven, CO 80271",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "county": {
+        "value": "Harlan",
+        "citation": "[Page 3] County Harlan",
+        "confidence": 1.0,
+        "page_numbers": [
+          3
+        ]
+      },
+      "submarket": {
+        "value": "Fairhaven International Airport",
+        "citation": "[Page 18] Property is located in Harlan County in the Fairhaven International Airport submarket.",
+        "confidence": 0.95,
+        "page_numbers": [
+          18
+        ]
+      },
+      "broker_name": {
+        "value": "Ridgeline Capital Advisors",
+        "citation": "[Page 2] Ridgeline Capital Advisors is pleased to present MARLOWE PARK MODERN APARTMENTS",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "units": {
+        "value": 188,
+        "citation": "[Page 2] Number of Units 188",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "year_built": {
+        "value": 2022,
+        "citation": "[Page 3] Year Built 2022",
+        "confidence": 1.0,
+        "page_numbers": [
+          3
+        ]
+      },
+      "year_renovated": {
+        "value": null,
+        "citation": "",
+        "confidence": 1.0
+      },
+      "building_type": {
+        "value": "Garden",
+        "citation": "[Page 2] Building Type Garden",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "number_of_buildings": {
+        "value": 13,
+        "citation": "[Page 2] Number of Buildings 13",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "stories": {
+        "value": "2 & 3",
+        "citation": "[Page 2] Number of Stories 2 & 3",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "rentable_sf": {
+        "value": 190142,
+        "citation": "[Page 2] Rentable SF 190,142 SF",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "average_unit_sf": {
+        "value": 1011,
+        "citation": "[Page 2] Avg. Unit Size 1,011 SF",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "site_acres": {
+        "value": 9.52,
+        "citation": "[Page 2] Site Area 9.520 acres",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "parking_spaces": {
+        "value": 266,
+        "citation": "[Page 2] Total Parking Spaces* 266 spaces",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "parking_ratio": {
+        "value": 1.41,
+        "citation": "[Page 2] Parking Ratio (per unit) 1.41/unit",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "asking_price": {
+        "value": null,
+        "citation": "",
+        "confidence": 1.0
+      },
+      "price_per_unit": {
+        "value": null,
+        "citation": "",
+        "confidence": 1.0
+      },
+      "asking_cap_rate": {
+        "value": null,
+        "citation": "",
+        "confidence": 1.0
+      },
+      "occupancy_pct": {
+        "value": 71,
+        "citation": "[Page 19] **Marlowe Park Modern Apartments is 71% leased as of the 9/13/2023 rent roll",
+        "confidence": 0.95,
+        "page_numbers": [
+          19
+        ]
+      },
+      "average_in_place_rent": {
+        "value": 2228,
+        "citation": "[Page 19] S Marlowe Park Modern Apartments Fairhaven 2022 188 71%** 1,011 $2,228 $2.20 ... ^Rents shown for Marlowe Park Modern Apartments are reflective of in-place effective rents",
+        "confidence": 0.95,
+        "page_numbers": [
+          19
+        ]
+      },
+      "market_rent": {
+        "value": 2260,
+        "citation": "[Page 2] Market Rent $2,260",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "market_rent_psf": {
+        "value": 2.23,
+        "citation": "[Page 2] Market Rent PSF $2.23",
+        "confidence": 1.0,
+        "page_numbers": [
+          2
+        ]
+      },
+      "unit_types": {
+        "value": [
+          "Aspen | 1 Bed 1 Bath",
+          "Birch | 1 Bed 1 Bath",
+          "Cedar w/ Attached Garage | 2 Bed 2 Bath",
+          "Dogwood w/ Attached Garage (2) | 2 Bed 2 Bath",
+          "Elm | 2 Bed 2 Bath",
+          "Fir w/ Attached Garage | 2 Bed 2 Bath",
+          "Hazel w/ Attached Garage | 3 Bed 2 Bath",
+          "Ironwood | 3 Bed 2 Bath"
+        ],
+        "citation": "[Page 13] Aspen ... 1 Bed 1 Bath ... Birch ... 1 Bed 1 Bath ... Cedar w/ Attached Garage ... 2 Bed 2 Bath ... Ironwood ... 3 Bed 2 Bath",
+        "confidence": 0.95,
+        "page_numbers": [
+          13
+        ]
+      },
+      "noi_t12": {
+        "value": null,
+        "citation": "",
+        "confidence": 1.0
+      },
+      "noi_proforma": {
+        "value": 3521352,
+        "citation": "[Page 14] Net Operating Income $3,521,352 $18,731",
+        "confidence": 1.0,
+        "page_numbers": [
+          14
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "model_calls": 3,
+    "tokens_in": 15234,
+    "tokens_out": 7423,
+    "cost_usd": 0.039262,
+    "models": {
+      "google/gemini-3.8-flash": {
+        "calls": 3,
+        "tokens_in": 15234,
+        "tokens_out": 7423,
+        "cost_usd": 0.039262
+      }
+    },
+    "cache_hits": 0,
+    "latency_ms": 49954
+  }
+}
